@@ -386,7 +386,7 @@ function deploy.initialize()
 function deploy.main()
 {
     local -A opts
-    eval opts=( ${1:?} )
+    eval "opts=( ${1:?} )"
     readonly opts
     shift
     local -ra args=( "$@" )

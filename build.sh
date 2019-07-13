@@ -360,7 +360,7 @@ function build.dockerCompose()
 {
     local -r compose_yaml="${1:?}"
 
-    local jsonConfig=$( build.yamlToJson "$compose_yaml" | jq '.services?' )
+    local jsonConfig=$( docker.yamlToJson "$compose_yaml" | jq '.services?' )
     if [ "${jsonConfig:-}" ]; then
         local -r service="$(jq -r 'keys[0]?' <<< "$jsonConfig")"
         [ -z "${service:-}" ] || jq $(eval echo "'.\"$service\"?'") <<< "$jsonConfig"
@@ -740,7 +740,7 @@ function build.verifyModules()
 function build.wrapper()
 {
     local -A opts
-    eval opts=( $1 )
+    eval "opts=( $1 )"
     readonly opts
     shift
 
@@ -761,23 +761,6 @@ function build.wrapper()
         (build.all "${opts['base']}" "${opts['logdir']}" "$@") && status=$? || status=$?
     fi
     return $status
-}
-
-#----------------------------------------------------------------------------------------------
-function build.yamlToJson()
-{
-    local -r yamlFile=${1:?}
-    local -a YAML_TO_JSON=( 'python' '-c' 'import sys, yaml, json; json.dump(yaml.load(sys.stdin), sys.stdout, indent=4)' )
-
-    if [ -e "$yamlFile"  ]; then
-        "${YAML_TO_JSON[@]}" < "$yamlFile"
-
-    elif [[ "$yamlFile" == http* ]]; then
-        "${YAML_TO_JSON[@]}" <<< "$(curl --insecure --silent --request GET "$yamlFile")"
-
-    else
-        "${YAML_TO_JSON[@]}" <<< "$yamlFile"
-    fi
 }
 
 #----------------------------------------------------------------------------------------------
