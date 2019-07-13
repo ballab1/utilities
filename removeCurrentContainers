@@ -1,0 +1,10 @@
+#!/bin/bash
+#############################################################################
+#
+#   removeCurrentContainers
+#
+#############################################################################
+
+declare -a containers=( $(docker images -q -f "reference=*:2018*"  --format "{{.Repository}}:{{.Tag}}") )
+[ ${#containers[@]} -eq 0 ] || docker rmi --force "${containers[@]}"
+docker images

@@ -1,0 +1,13 @@
+#!/bin/bash
+cat << EOF
+
+this is going to give us some really useful info (soon)
+
+    build.sh
+    deploy
+    docker-utilities
+    findBusyMount
+    help                        This info
+    removeCurrentContainers
+
+EOF
