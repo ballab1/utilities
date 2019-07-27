@@ -27,7 +27,7 @@ function docker-utilities.usage()
 
     cat >&2 << EOF
 
-Varios operations on a docker repository: $(registry.SERVER)
+Various operations on the docker subsystem.
 
 Usage:
     $progname [ help
@@ -99,13 +99,15 @@ EOF
 #----------------------------------------------------------------------------------------------
 function docker-utilities.cmdLineArgs()
 {
+    local cmd=${1:-}
+
     local -A opts=(['cmd']='docker-utilities.usage')
     local longOpts=''
     local shortOpts=''
     local -i numberOfArgs=0
 
-    case "${1:-}" in
-        help|Help|HELP)
+    case "${cmd,,}" in
+        help)
             opts['cmd']='docker-utilities.usage'
             shift;;
 
@@ -127,7 +129,7 @@ function docker-utilities.cmdLineArgs()
 
         getremoteimage)
             opts['cmd']='docker-utilities.getImage'
-            opts['message']="Get one or more images from some remote, and push to $(registry.SERVER)"
+            opts['message']="Get one or more images from some remote, and push to $(registry.REGISTRY)"
             longOpts='quiet'
             shortOpts='q'
             numberOfArgs=1
@@ -157,7 +159,7 @@ function docker-utilities.cmdLineArgs()
             numberOfArgs=0
             shift;;
 
-        retagImages)
+        retagimages)
             opts['cmd']='docker-utilities.retagImages'
             opts['message']="retag images defined in docker-compose.yml "
             longOpts=''
@@ -232,7 +234,7 @@ function docker-utilities.cmdLineArgs()
 
             -i|--images)
                 opts['oper']='images'
-                opts['message']='show details about local docker images { aka: docker images }'
+                opts['message']="show details about local docker images  aka: <docker images> "
                 shift;;
 
             -k|--keepTags)
@@ -258,7 +260,7 @@ function docker-utilities.cmdLineArgs()
 
             -p|--processes)
                 opts['oper']='processes'
-                opts['message']='show details about current processes  { aka: 'docker ps' }'
+                opts['message']="show details about current processes   aka: <docker ps> "
                 shift;;
 
             -q|--quiet)
@@ -337,8 +339,8 @@ function docker-utilities.clean()
     collection=()
     collection+=( $(docker ps --all --quiet --filter "status=dead" --format "{{.Names}}") )
     collection+=( $(docker ps --all --quiet --filter "status=exited" --format "{{.Names}}") )
-    if [ ${#collection[@]} -gt 0 ]; then
-        printf "Deleting %d exited containers\n" ${#collection[@]}
+    if [ "${#collection[*]}" -gt 0 ]; then
+        printf "Deleting %d exited containers\n" "${#collection[*]}"
         docker rm --volumes "${collection[@]}"
     fi
 
@@ -348,42 +350,43 @@ function docker-utilities.clean()
     collection=( $(docker images --quiet --filter "dangling=true") )
 
     local fingerprint image
-    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep ':tmp' ||:); do
+    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -s ':tmp' ||:); do
         collection+=( $image )
     done
-    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>'); do
+    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>' ||:); do
         fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
-        [ -z "${fingerprint}:-" ] && continue
+        [ -z "${fingerprint:-}" ] && continue
         [ "$fingerprint" != "${image##*:}" ] && continue
         collection+=( $image )
     done
-    for image in $(docker images | grep '<none>' ||: | awk '{if($1 == "<none>"){print $3}}'); do
+    for image in $((docker images | grep -s '<none>'  ||:) | awk '{if($1 == "<none>"){print $3}}'); do
         fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
-        [ -z "${fingerprint}:-" ] && continue
-        [ "$fingerprint" != "${image##*:}" ] && continue
+        [ -z "${fingerprint:-}" ] && continue
         collection+=( $image )
     done
-    for image in $(docker ps --format '{{.Image}}' | sort -u); do
-        collection=( ${collection[@]/$image} )
-    done
-    if [ ${#collection[@]} -gt 0 ]; then
-        printf "Deleting %d dangling/temporary images\n" ${#collection[@]}
-        docker rmi "${collection[@]}"
+    if [ "${#collection[*]}" -gt 0 ]; then
+        collection=( $(printf '%s\n' "${collection[@]}" | uniq) )
+        for image in $(docker ps --format '{{.Image}}' | uniq); do
+            [[ "${#collection[*]}" -gt 0 && $(grep -c "$image" <<< $(printf '%s\n' "${collection[@]}")) -gt 0 ]] && collection=( ${collection[@]/$image} )
+        done
+        if [ "${#collection[*]}" -gt 0 ]; then
+            printf "Deleting %d dangling/temporary images\n" "${#collection[*]}"
+            docker rmi "${collection[@]}"
+        fi
     fi
 
 
     # get list of volumes associated with running containers
-
     collection=()
     for volume in $(docker ps --all --quiet); do
-        collection+=( $(docker inspect "$volume" | jq -r '.[].Mounts[].Name | select(.)') )
+        collection+=( $(docker inspect "$volume" | jq -r '.[].Mounts[].Name | select(.)' | uniq) )
     done
-    [ "${#collection[@]}" -gt 0 ] && printf "Detected %d mounts associated with running containers\n" ${#collection[@]}
+    [ "${#collection[*]}" -gt 0 ] && printf "Detected %d mounts associated with running containers\n" "${#collection[*]}"
 
 
     # remove directories associated with unused volumes
     local volumes="$( printf "%s\n" "${collection[@]}" )"
-    if [ ${#collection[@]} -gt 0 ]; then
+    if [ "${#collection[*]}" -gt 0 ]; then
         local -i deletions=0
         for dir in $(sudo find '/var/lib/docker/volumes/' -mindepth 1 -maxdepth 1 -type d); do
             (grep "$dir" <<< "$volumes") && continue
@@ -393,21 +396,15 @@ function docker-utilities.clean()
         [ $deletions -gt 0 ] && printf "Deleted %d directories associated with volumes no longer in use\n" $deletions
     fi
 
+
     # show results
 
     local -i blocksUsedAfter="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
     local -i recovered=$(( blocksUsedBefore - blocksUsedAfter ))
-    [ "$recovered" -gt 0 ] && printf "Recovered %d kb\n" $recovered
+    [ $recovered -le 0 ] || printf "Recovered %d kb\n" $recovered
     echo
 
-    mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}")
-    if [ ${#images[*]} -ne 0 ]; then
-        # show image report
-        echo
-        echo -e "\e[97m${images[0]}\e[0m"
-        unset images[0]
-        printf '%s\n' "${images[@]}" | sort 
-    fi
+    docker-utilities.show 'images' "$@"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -685,15 +682,14 @@ function docker-utilities.formatTextReport()
                --volume "/tmp:/tmp" \
                -e "JSON=/tmp/reportCatalog.json" \
                --workdir /home/groovy/scripts \
-               "$(registry.SERVER)alpine/groovy:2.6-jre" \
+               "$(registry.REGISTRY)alpine/groovy:2.6-jre" \
                groovy registryReport.groovy
 }
 
 #----------------------------------------------------------------------------------------------
 function docker-utilities.getImage()
 {
-    local -r name=${1:?}
-    local -r tag=${2:?}
+    local -r image=${1:?}
 
     local -i status=0
 
@@ -703,12 +699,12 @@ function docker-utilities.getImage()
         [ $status -ne 0 ] && return $status
     fi
 
-    docker tag "$image" "$(registry.SERVER)${image##*/}" || status=$?
-    [ $status -eq 0 ] && docker push "$(registry.SERVER)${image##*/}" || status=$?
+    docker tag "$image" "$(registry.REGISTRY)${image##*/}" || status=$?
+    [ $status -eq 0 ] && docker push "$(registry.REGISTRY)${image##*/}" || status=$?
     [ $status -ne 0 ] && return $status
 
     docker rmi "$image" || status=$?
-    docker rmi "$(registry.SERVER)${image##*/}" || status=$?
+    docker rmi "$(registry.REGISTRY)${image##*/}" || status=$?
     [ $status -ne 0 ] && term.elog 'WARNING:  Failed to cleanup temporary images' 'warn'
 
     return 0
@@ -736,9 +732,10 @@ function docker-utilities.main()
     term.elog "${opts['message']:-} : $*"'\n' 'grey'
     local status=0
     DEBUG=1
-    "${opts['cmd']}" "${opts['oper']:-}" "$@" && status=$? || status=$?
-    [ "${opts['delete']:-}" ] && [ $status = 0 ] && docker-utilities.confirmImageDeletion && status=$? || status=$?
-
+    "${opts['cmd']}" ${opts['oper']:-} "$@" && status=$? || status=$?
+    if [ $status -eq 0 ] && [ "${opts['delete']:-}" ]; then
+         docker-utilities.confirmImageDeletion && status=$? || status=$?
+    fi
     return $status
 }
 
@@ -751,7 +748,7 @@ function docker-utilities.pushImage()
     local image
     local -a images=()
     for image in "$@"; do
-        images+=( $(registry.SERVER)$image )
+        [ "${image:-}" ] && images+=( $(registry.SERVER)$image )
     done
     docker.pushRetained $INCLUDE_FINGERPRINT "${images[@]}" && status=$? || status=$?
     return $status
@@ -761,7 +758,7 @@ function docker-utilities.pushImage()
 function docker-utilities.removeRegistryReference()
 {
     for id in "$@"; do
-        echo ${id#$(registry.SERVER)}
+        [ "${id:-}" ] && echo ${id#$(registry.SERVER)}
     done
 }
 
@@ -847,7 +844,7 @@ function docker-utilities.reportCatalogAsJson()
 
             local digests="$(registry.digests "$entry")"
             printf '{"id":"%05d","repository":"%s"' "$index" "$entry"
-            [ -z "$digests" ] || echo -n ',"digests":['"${digests}]"
+            [ -z "$digests" ] || echo -n ',"digests":['"${digests}"']'
             echo -n '}'
         done
         echo -n ']'
@@ -913,7 +910,7 @@ function docker-utilities.retagImages()
 
     local -a images
     mapfile -f images < <(docker.yamlToJson "$yaml" | jq -r '.services[].image')
-    if [ ${#images[*]} -gt 0 ]; then
+    if [ "${#images[*]}" -gt 0 ]; then
         local image target
         for image in "${images[@]}"; do
             image=$(eval echo $image)
@@ -935,6 +932,7 @@ function docker-utilities.run()
 function docker-utilities.show()
 {
     local -r mode=${1:?}
+    local -r filter=${2:-}
     
     local -i status=0
     case "$mode" in
@@ -945,7 +943,11 @@ function docker-utilities.show()
             mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}")
             echo -e "\e[97m${images[0]}\e[0m"
             unset images[0]
-            printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
+            if [ "${filter:-}" ]; then
+                (printf '%s\n' "${images[@]}" | sort | grep -E "$filter") && status=$? || status=$?
+            else
+                printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
+            fi
             echo
             ;;
 
@@ -964,7 +966,11 @@ function docker-utilities.show()
             mapfile -t containers < <(docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}")
             echo -e "\e[97m${containers[0]}\e[0m"
             unset "containers[0]"
-            printf '%s\n' "${containers[@]}" | sort && status=$? || status=$?
+            if [ "${filter:-}" ]; then
+                (printf '%s\n' "${containers[@]}" | sort | grep -E "$filter") && status=$? || status=$?
+            else
+                printf '%s\n' "${containers[@]}" | sort && status=$? || status=$?
+            fi
             ;;
 
         services)

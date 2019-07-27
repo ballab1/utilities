@@ -69,10 +69,16 @@ function build.all()
         fi
     fi
 
+    KAFKA_PRODUCER="$(which kafkaProducer.py 2>/dev/null ||:)"
+    [ "$KAFKA_PRODUCER" ] || KAFKA_PRODUCER="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))/kafkaProducer.py"
+    [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && echo 'Unable to locate KAFKA_PRODUCER script. No metrics gathered'
+
+    echo
     echo "Container Build Framework version: $cbf_version"
     echo "kafka servers:  ${KAFKA_BOOTSTRAP_SERVERS:-}"
+    echo "kafka_producer: ${KAFKA_PRODUCER:-}"
     echo
-    echo
+
 
     local -i status=0
     local request_cbf="${CBF_VERSION:-}"
@@ -107,6 +113,36 @@ function build.all()
 
     [ -d "$logDir" ] && [ $(ls -1A "$logDir" | wc -l) -gt 0 ] || rmdir "$logDir"
     return $status
+}
+
+#----------------------------------------------------------------------------------------------
+#
+#    builds: BASE_TAG is determined before a build attempts to use it
+#        if parent:branch exists locally: BASE_TAG=branch
+#        if parent:branch exists remotely: BASE_TAG=branch
+#        if image:branch exists locally and the parent of image:branch exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#        if image:branch exists remotely and the parent of image:branch exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#        for branch_promote_into
+#            if parent:branch_promote_into exists locally: BASE_TAG=branch_promote_into
+#            if parent:branch_promote_into exists remotely: BASE_TAG=branch_promote_into
+#            if image:branch_promote_into exists locally and the parent of image:branch_promote_into exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#            if image:branch_promote_into exists remotely and the parent of image:branch_promote_into exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#        until branch_promote_into == $$TOP_OF_TREE$$
+#
+#        or when BASE_TAG='latest': build list of above tags and associated times. BASE_TAG=(tag of most recent from list)
+#
+function build.baseTag()
+{
+    local -r repoName=${1:?}
+
+    if [ "${BASE_TAG:-}" ]; then
+        echo "$BASE_TAG"
+        return 0
+    fi
+
+    local branch=$(git.branch)
+
+    echo "${branch//\//-}"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -423,6 +459,7 @@ function build.logInfo()
     echo "    fingerprint:    ${CONTAINER_FINGERPRINT:-}"
     echo "    revision:       ${CONTAINER_ORIGIN:-}"
     echo "    parent:         ${CONTAINER_PARENT:-}"
+    echo "    BASE_TAG:       ${BASE_TAG:-}"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -444,6 +481,7 @@ function build.logImageInfo()
     echo '    repo:             '$(jq -r '."container.git.url"' <<< "$json") >> "$depLog"
     echo '    fingerprint:      '$(jq -r '."container.fingerprint"' <<< "$json") >> "$depLog"
     echo '    parent:           '$(jq -r '."container.parent"' <<< "$json") >> "$depLog"
+    echo '    BASE_TAG:         '${BASE_TAG:-} >> "$depLog"
     echo '    revision:         '$(jq -r '."container.origin"' <<< "$json") >> "$depLog"
     echo '    build.time:       '$(jq -r '."container.build.time"' <<< "$json") >> "$depLog"
     echo '    original.name:    '$(jq -r '."container.original.name"' <<< "$json") >> "$depLog"
@@ -459,13 +497,11 @@ function build.logToKafka()
         echo 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered'
         return 0
     fi
-
-    local kafka_producer="$(which kafkaProducer.py 2>/dev/null ||:)"
-    [ "$kafka_producer" ] || kafka_producer="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))/kafkaProducer.py"
-    if [ -z "${kafka_producer:-}" ] || [ ! -e "$kafka_producer" ]; then
+    if [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ]; then
         echo 'Unable to locate KAFKA_PRODUCER script. No metrics gathered'
         return 0
     fi
+
 
     local -r build_time=${1:-}
     local -r fingerprint=${2:-}
@@ -498,7 +534,7 @@ function build.logToKafka()
 
 
     # now log our data to kafka
-    ("$kafka_producer" --server "$KAFKA_BOOTSTRAP_SERVERS"                     \
+    ("$KAFKA_PRODUCER" --server "$KAFKA_BOOTSTRAP_SERVERS"                     \
                        --topic 'container_build_data'                          \
                        --value "$( json.encodeHash '--' "${build_data[@]}" )" &) || :
     return 0
@@ -523,27 +559,12 @@ function build.module()
     export CONTAINER_GIT_URL="$(git.remoteUrl)"
     export CONTAINER_ORIGIN="$(git.origin)"
 
-
     # generate fingerprint from all our dependencies
-    local branch=$(git.branch)
-    if [ "$branch" = 'HEAD' ]; then
-        local -a branches
-        mapfile -t branches < <(git log -n1 --oneline --decorate | \
-                                sed -e 's/[^\(]*(\([^\)]*\)).*/\1/' -e 's:origin/::g' -e 's:,::g' -e 's|tag:||g' -e 's|HEAD||g' | \
-                                awk '{if(length($0)>0) {print $0}}' RS=' '| \
-                                sort -u | \
-                                awk '{if(length($0)>0) {print $0}}')
-        if [ "${#branches[0]}" -eq 0 ]; then
-            term.elog "***ERROR: failure to determine current branch for $(git.repoName). Most likely on a detached HEAD"'\n' 'warn'
-            git log -8 --graph --abbrev-commit --decorate --all >&2
-            return 1
-        fi
-        branch="${branches[0]}"
-    fi
-    export BASE_TAG="${BASE_TAG:-${branch//\//-}}"
+    local taggedImage="$(eval echo $(jq '.image?' <<< $config))"
+
+    export BASE_TAG="$(build.baseTag "${taggedImage%:*}")"
     export CONTAINER_PARENT="$(build.getImageParent "$config" 'unique')"
 
-    local taggedImage="$(eval echo $(jq '.image?' <<< $config))"
     taggedImage="${taggedImage%:*}:${BASE_TAG}"
 
     local -r dependencies="$(build.dependencyInfo "$config")"
@@ -590,7 +611,9 @@ function build.module()
           | sed -E 's|\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]||g' >>"${logBase}.out.log") \
           && status=$? || status=$?
         [[ $status -eq 9 || ! -s "${logBase}.out.log" ]] && rm "${logBase}.out.log"
-        [ -s "${logBase}.err" ] || rm "${logBase}.err.log"
+        if [ -f "${logBase}.err" ]; then
+            [ -s "${logBase}.err" ] || rm "${logBase}.err.log"
+        fi
 
 
         if [ "${BUILD_URL:-}" ]; then
@@ -744,11 +767,21 @@ function build.wrapper()
     readonly opts
     shift
 
+    export BUILD_ALWAYS
+    export BUILD_PUSH
+    export CBF_VERSION
+    export CONSOLE_LOG
+    export CONTAINER_OS
+    export CONTAINER_TAG
+    export KAFKA_BOOTSTRAP_SERVERS
+    export KAFKA_PRODUCER
+    export VERSIONS_DIRECTORY
 
-    export CONSOLE_LOG="${opts['conlog']:-0}"
-    [ "${opts['force']:-}" ]  && export BUILD_ALWAYS="${opts['force']}"
-    [ "${opts['push']:-}" ]   && export BUILD_PUSH="${opts['push']}"
-    [ "${opts['os']:-}" ]     && export CONTAINER_OS="${opts['os']}"
+
+    [ "${opts['force']:-}" ]  && BUILD_ALWAYS="${opts['force']}"
+    [ "${opts['push']:-}" ]   && BUILD_PUSH="${opts['push']}"
+    [ "${opts['os']:-}" ]     && CONTAINER_OS="${opts['os']}"
+    CONSOLE_LOG="${opts['conlog']:-0}"
 
 
     local -i status=0
