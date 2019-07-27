@@ -1,5 +1,7 @@
 #!/bin/bash
 
+declare GROOVY_IMAGE
+
 declare -r grey='\e[90m'
 declare -r white='\e[97m'
 declare -r reset='\e[0m'
@@ -27,7 +29,7 @@ function docker-utilities.usage()
 
     cat >&2 << EOF
 
-Varios operations on a docker repository: $(registry.SERVER)
+Various operations on a docker repository: $(registry.SERVER)
 
 Usage:
     $progname [ help
@@ -99,13 +101,15 @@ EOF
 #----------------------------------------------------------------------------------------------
 function docker-utilities.cmdLineArgs()
 {
+    local cmd=${1:-}
+
     local -A opts=(['cmd']='docker-utilities.usage')
     local longOpts=''
     local shortOpts=''
     local -i numberOfArgs=0
 
-    case "${1:-}" in
-        help|Help|HELP)
+    case "${cmd,,}" in
+        help)
             opts['cmd']='docker-utilities.usage'
             shift;;
 
@@ -151,13 +155,13 @@ function docker-utilities.cmdLineArgs()
 
         report)
             opts['cmd']='docker-utilities.report'
-            opts['message']="report local images and push them to $(registry.SERVER) "
+            opts['message']="report image in $(registry.SERVER) "
             longOpts='catalog,format:,output:,quiet,tag-summary,tags'
-            shortOpts='c:o:qt'
+            shortOpts='c:f:o:qt'
             numberOfArgs=0
             shift;;
 
-        retagImages)
+        retagimages)
             opts['cmd']='docker-utilities.retagImages'
             opts['message']="retag images defined in docker-compose.yml "
             longOpts=''
@@ -232,7 +236,7 @@ function docker-utilities.cmdLineArgs()
 
             -i|--images)
                 opts['oper']='images'
-                opts['message']='show details about local docker images { aka: docker images }'
+                opts['message']="show details about local docker images  aka: <docker images> "
                 shift;;
 
             -k|--keepTags)
@@ -258,7 +262,7 @@ function docker-utilities.cmdLineArgs()
 
             -p|--processes)
                 opts['oper']='processes'
-                opts['message']='show details about current processes  { aka: 'docker ps' }'
+                opts['message']="show details about current processes   aka: <docker ps> "
                 shift;;
 
             -q|--quiet)
@@ -326,132 +330,6 @@ function docker-utilities.cmdLineArgs()
 }
 
 #----------------------------------------------------------------------------------------------
-#   clean: remove Old Containers and '<none>' images 
-function docker-utilities.clean()
-{
-    local -a collection
-    local -i blocksUsedBefore="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
-
-    # remove all containers which are stopped along with their associated volumes
-
-    collection=()
-    collection+=( $(docker ps --all --quiet --filter "status=dead" --format "{{.Names}}") )
-    collection+=( $(docker ps --all --quiet --filter "status=exited" --format "{{.Names}}") )
-    if [ ${#collection[@]} -gt 0 ]; then
-        printf "Deleting %d exited containers\n" ${#collection[@]}
-        docker rm --volumes "${collection[@]}"
-    fi
-
-
-    # remove any 'dangling' images  (those with <none> in name)
-
-    collection=( $(docker images --quiet --filter "dangling=true") )
-
-    local fingerprint image
-    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep ':tmp' ||:); do
-        collection+=( $image )
-    done
-    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>'); do
-        fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
-        [ -z "${fingerprint}:-" ] && continue
-        [ "$fingerprint" != "${image##*:}" ] && continue
-        collection+=( $image )
-    done
-    for image in $(docker images | grep '<none>' ||: | awk '{if($1 == "<none>"){print $3}}'); do
-        fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
-        [ -z "${fingerprint}:-" ] && continue
-        [ "$fingerprint" != "${image##*:}" ] && continue
-        collection+=( $image )
-    done
-    for image in $(docker ps --format '{{.Image}}' | sort -u); do
-        collection=( ${collection[@]/$image} )
-    done
-    if [ ${#collection[@]} -gt 0 ]; then
-        printf "Deleting %d dangling/temporary images\n" ${#collection[@]}
-        docker rmi "${collection[@]}"
-    fi
-
-
-    # get list of volumes associated with running containers
-
-    collection=()
-    for volume in $(docker ps --all --quiet); do
-        collection+=( $(docker inspect "$volume" | jq -r '.[].Mounts[].Name | select(.)') )
-    done
-    [ "${#collection[@]}" -gt 0 ] && printf "Detected %d mounts associated with running containers\n" ${#collection[@]}
-
-
-    # remove directories associated with unused volumes
-    local volumes="$( printf "%s\n" "${collection[@]}" )"
-    if [ ${#collection[@]} -gt 0 ]; then
-        local -i deletions=0
-        for dir in $(sudo find '/var/lib/docker/volumes/' -mindepth 1 -maxdepth 1 -type d); do
-            (grep "$dir" <<< "$volumes") && continue
-            sudo rm -rf "$dir"
-            (( deletions++ ))
-        done
-        [ $deletions -gt 0 ] && printf "Deleted %d directories associated with volumes no longer in use\n" $deletions
-    fi
-
-    # show results
-
-    local -i blocksUsedAfter="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
-    local -i recovered=$(( blocksUsedBefore - blocksUsedAfter ))
-    [ "$recovered" -gt 0 ] && printf "Recovered %d kb\n" $recovered
-    echo
-
-    mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}")
-    if [ ${#images[*]} -ne 0 ]; then
-        # show image report
-        echo
-        echo -e "\e[97m${images[0]}\e[0m"
-        unset images[0]
-        printf '%s\n' "${images[@]}" | sort 
-    fi
-}
-
-#----------------------------------------------------------------------------------------------
-function docker-utilities.confirmImageDeletion()
-{
-    if [ "${#IMAGES_TO_DELETE[*]}" -eq 0 ]; then
-        term.elog 'no images to delete\n' 'warn'
-        return 0
-    fi
-
-    local image name digest
-    local -i status=0
-
-    term.elog '\nAbout to delete the following images:      <repo_name>@<digest> : <tags>\n'
-    for image in "${!IMAGES_TO_DELETE[@]}"; do
-        tags="${IMAGES_TO_DELETE[$image]}"
-        printf '    %s : %s\n' "$image" "$tags" | sort >&2
-    done
-    echo
-
-    local prompt='[Yes/No/All/Quit]'
-    [ "${#IMAGES_TO_DELETE[*]}" -eq 1 ] && prompt='[Yes/No]'
-    for image in "${!IMAGES_TO_DELETE[@]}"; do
-        repo="${image%@*}"
-	digest="${image##*@}"
-
-        if [ "${DO_DELETE:-0}" -eq 0 ]; then
-            echo -en "Delete $image $prompt ? "
-            local yesno='n'
-            read yesno
-            echo
-            yesno="${yesno,,}"
-            [ "${yesno:0:1}" = 'n' ] && continue
-            [ "${yesno:0:1}" = 'q' ] && break
-            [ "${yesno:0:1}" = 'a' ] && DO_DELETE=1
-        fi
-        registry.deleteImage "$repo" "$digest" || status=$?
-    done
-    echo
-    IMAGES_TO_DELETE=()
-    return $status
-}
-
-#----------------------------------------------------------------------------------------------
 function docker-utilities.addImageToList()
 {
     local name=${1:?}
@@ -506,6 +384,126 @@ function docker-utilities.catalogIterator()
 
     [ $content -eq 0 ] && term.elog '\nNo content specified\n' 'warn'
     return 0
+}
+
+#----------------------------------------------------------------------------------------------
+#   clean: remove Old Containers and '<none>' images 
+function docker-utilities.clean()
+{
+    local -a collection
+    local -i blocksUsedBefore="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
+
+    # remove all containers which are stopped along with their associated volumes
+
+    collection=()
+    collection+=( $(docker ps --all --quiet --filter "status=dead" --format "{{.Names}}") )
+    collection+=( $(docker ps --all --quiet --filter "status=exited" --format "{{.Names}}") )
+    if [ ${#collection[@]} -gt 0 ]; then
+        printf "Deleting %d exited containers\n" ${#collection[@]}
+        docker rm --volumes "${collection[@]}"
+    fi
+
+
+    # remove any 'dangling' images  (those with <none> in name)
+
+    collection=( $(docker images --quiet --filter "dangling=true") )
+
+    local fingerprint image
+    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep ':tmp' ||:); do
+        collection+=( $image )
+    done
+    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>'); do
+        fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
+        [ -z "${fingerprint}:-" ] && continue
+        [ "$fingerprint" != "${image##*:}" ] && continue
+        collection+=( $image )
+    done
+    for image in $(docker images | grep '<none>' ||: | awk '{if($1 == "<none>"){print $3}}'); do
+        fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
+        [ -z "${fingerprint}:-" ] && continue
+        [ "$fingerprint" != "${image##*:}" ] && continue
+        collection+=( $image )
+    done
+    for image in $(docker ps --format '{{.Image}}' | sort -u ||:); do
+        collection=( ${collection[@]/$image} )
+    done
+    if [ ${#collection[@]} -gt 0 ]; then
+        printf "Deleting %d dangling/temporary images\n" ${#collection[@]}
+        docker rmi "${collection[@]}"
+    fi
+
+
+    # get list of volumes associated with running containers
+
+    collection=()
+    for volume in $(docker ps --all --quiet); do
+        collection+=( $(docker inspect "$volume" | jq -r '.[].Mounts[].Name | select(.)') )
+    done
+    [ "${#collection[@]}" -gt 0 ] && printf "Detected %d mounts associated with running containers\n" ${#collection[@]}
+
+
+    # remove directories associated with unused volumes
+    local volumes="$( printf "%s\n" "${collection[@]}" )"
+    if [ ${#collection[@]} -gt 0 ]; then
+        local -i deletions=0
+        for dir in $(sudo find '/var/lib/docker/volumes/' -mindepth 1 -maxdepth 1 -type d); do
+            (grep "$dir" <<< "$volumes") && continue
+            sudo rm -rf "$dir"
+            (( deletions++ ))
+        done
+        [ $deletions -gt 0 ] && printf "Deleted %d directories associated with volumes no longer in use\n" $deletions
+    fi
+
+    # show results
+
+    local -i blocksUsedAfter="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
+    local -i recovered=$(( blocksUsedBefore - blocksUsedAfter ))
+    [ "$recovered" -gt 0 ] && printf "Recovered %d kb\n" $recovered
+    echo
+
+    docker-utilities.show 'images'
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function docker-utilities.confirmImageDeletion()
+{
+    if [ "${#IMAGES_TO_DELETE[*]}" -eq 0 ]; then
+        term.elog 'no images to delete\n' 'warn'
+        return 0
+    fi
+
+    local image name digest
+    local -i status=0
+
+    term.elog '\nAbout to delete the following images:      <repo_name>@<digest> : <tags>\n'
+    for image in "${!IMAGES_TO_DELETE[@]}"; do
+        tags="${IMAGES_TO_DELETE[$image]}"
+        printf '    %s : %s\n' "$image" "$tags" | sort ||: >&2
+    done
+    echo
+
+    local prompt='[Yes/No/All/Quit]'
+    [ "${#IMAGES_TO_DELETE[*]}" -eq 1 ] && prompt='[Yes/No]'
+    for image in "${!IMAGES_TO_DELETE[@]}"; do
+        repo="${image%@*}"
+	digest="${image##*@}"
+
+        if [ "${DO_DELETE:-0}" -eq 0 ]; then
+            echo -en "Delete $image $prompt ? "
+            local yesno='n'
+            read yesno
+            echo
+            yesno="${yesno,,}"
+            [ "${yesno:0:1}" = 'n' ] && continue
+            [ "${yesno:0:1}" = 'q' ] && break
+            [ "${yesno:0:1}" = 'a' ] && DO_DELETE=1
+        fi
+        registry.deleteImage "$repo" "$digest" || status=$?
+    done
+    echo
+    IMAGES_TO_DELETE=()
+    return $status
 }
 
 #----------------------------------------------------------------------------------------------
@@ -676,20 +674,6 @@ function docker-utilities.digests()
 }
 
 #----------------------------------------------------------------------------------------------
-function docker-utilities.formatTextReport()
-{
-    local -r TOOLS="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-    docker run --rm \
-               --volume "$TOOLS":/home/groovy/scripts \
-               --volume "/tmp:/tmp" \
-               -e "JSON=/tmp/reportCatalog.json" \
-               --workdir /home/groovy/scripts \
-               "$(registry.SERVER)alpine/groovy:2.6-jre" \
-               groovy registryReport.groovy
-}
-
-#----------------------------------------------------------------------------------------------
 function docker-utilities.getImage()
 {
     local -r name=${1:?}
@@ -732,12 +716,14 @@ function docker-utilities.main()
     [ "${opts['output']:-}" ] && REPORT_OUTPUT="${opts['output']}"
     [ "${opts['quiet']:-}" ] && IS_QUIET=1
     [ "${opts['start']:-}" ] && REPO_START=${opts['start']}
-
     term.elog "${opts['message']:-} : $*"'\n' 'grey'
+    
     local status=0
     DEBUG=1
     "${opts['cmd']}" "${opts['oper']:-}" "$@" && status=$? || status=$?
-    [ "${opts['delete']:-}" ] && [ $status = 0 ] && docker-utilities.confirmImageDeletion && status=$? || status=$?
+    if [ "${opts['delete']:-}" ] && [ $status = 0 ]; then
+        docker-utilities.confirmImageDeletion && status=$? || status=$?
+    fi
 
     return $status
 }
@@ -751,7 +737,7 @@ function docker-utilities.pushImage()
     local image
     local -a images=()
     for image in "$@"; do
-        images+=( $(registry.SERVER)$image )
+        [ "${image:-}" ] && images+=( $(registry.SERVER)$image )
     done
     docker.pushRetained $INCLUDE_FINGERPRINT "${images[@]}" && status=$? || status=$?
     return $status
@@ -761,7 +747,7 @@ function docker-utilities.pushImage()
 function docker-utilities.removeRegistryReference()
 {
     for id in "$@"; do
-        echo ${id#$(registry.SERVER)}
+        [ "${id:-}" ] && echo ${id#$(registry.SERVER)}
     done
 }
 
@@ -805,27 +791,30 @@ function docker-utilities.report()
         registry.tags "$@"
 
     elif [ "${reportType:-}" = 'tag-summary' ]; then
-        docker-utilities.reportTagSummary "$@"
+        docker-utilities.reportTagSummary "$@" && status=$? || status=$?
 
     elif [ "${REPORT_FORMAT:-}" = 'json' ]; then
         if [ "${REPORT_OUTPUT:-}" ]; then
-            docker-utilities.reportCatalogAsJson "$@" > "${REPORT_OUTPUT}"
+            (docker-utilities.reportCatalogAsJson "$@" > "${REPORT_OUTPUT}") && status=$? || status=$?
         else
-            docker-utilities.reportCatalogAsJson "$@"
+            docker-utilities.reportCatalogAsJson "$@" && status=$? || status=$?
         fi
 
     else
-        docker-utilities.reportCatalogAsJson "$@" > /tmp/reportCatalog.json
-        if docker-utilities.formatTextReport /tmp/reportCatalog.json ;then
+        (docker-utilities.reportCatalogAsJson "$@" > /tmp/reportCatalog.json)  && status=$? || status=$?
+        if docker-utilities.reportTextFormat /tmp/reportCatalog.json ;then
             if [ "${REPORT_OUTPUT:-}" ]; then
-                mv ./registryReport.txt "${REPORT_OUTPUT}"
+                mv "${APP_DIR}/registryReport.txt" "${REPORT_OUTPUT}"
             else
-                cat ./registryReport.txt
-                rm ./registryReport.txt
+                cat "${APP_DIR}/registryReport.txt"
+                rm "${APP_DIR}/registryReport.txt"
            fi
+        else
+            status=$?
         fi
     fi
     [ ! -e /tmp/reportCatalog.json ] || rm /tmp/reportCatalog.json
+    [ "$status" -eq 0 ] || trap.die "Failed to generate report"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -903,6 +892,21 @@ function docker-utilities.reportTagSummary()
 }
 
 #----------------------------------------------------------------------------------------------
+function docker-utilities.reportTextFormat()
+{
+    local -i status
+    (docker run --rm \
+                --volume "$APP_DIR":/home/groovy/scripts \
+                --volume "/tmp:/tmp" \
+                -e "JSON=/tmp/reportCatalog.json" \
+                --workdir /home/groovy/scripts \
+                "$GROOVY_IMAGE" \
+                groovy registryReport.groovy) && status=$? || status=$?
+#                groovy registryReport.groovy   2>/dev/null) && status=$? || status=$?
+    return $status
+}
+
+#----------------------------------------------------------------------------------------------
 # retag images
 function docker-utilities.retagImages()
 {
@@ -951,10 +955,7 @@ function docker-utilities.show()
 
         networks)
             # show networks
-            local -a networks=( $( docker network ls | grep 'default' | awk "{ print \$1 }" ) )
-            docker network inspect "${networks[@]}" | \
-            jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
-               sort -t "." -k 4g && status=$? || status=$?
+            docker.networks && status=$? || status=$?
             ;;
 
         processes)
@@ -974,7 +975,7 @@ function docker-utilities.show()
 
             local jsonConfig=$(docker.yamlToJson "$yaml" | jq -c '.services?')
             [ -z "${jsonConfig:-}" ] && trap.die echo "Invalid file: $yaml"'\n'
-            jq -r 'keys[]?' <<< "$jsonConfig" && status=$? || status=$?
+            docker.services "$jsonConfig" && status=$? || status=$?
             ;;
     esac
     return $status
@@ -990,14 +991,17 @@ declare -i status
 declare -a args
 declare -i DEBUG
 
-declare loader="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/appenv.bashlib"
+declare -r APP_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+declare -r loader="${APP_DIR}/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries'
     exit 1
 fi
-source "$loader"
 
+source "$loader"
 appenv.loader 'docker-utilities.main'
+GROOVY_IMAGE="$(registry.SERVER)alpine/groovy:2.6-jre"
+
 args=( $( docker-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
 [ $status -eq 0 ] && docker-utilities.main "${args[@]}" && status=$? || status=$?
 exit $status
