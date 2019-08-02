@@ -116,6 +116,21 @@ function build.all()
 }
 
 #----------------------------------------------------------------------------------------------
+#
+#    builds: BASE_TAG is determined before a build attempts to use it
+#        if parent:branch exists locally: BASE_TAG=branch
+#        if parent:branch exists remotely: BASE_TAG=branch
+#        if image:branch exists locally and the parent of image:branch exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#        if image:branch exists remotely and the parent of image:branch exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#        for branch_promote_into
+#            if parent:branch_promote_into exists locally: BASE_TAG=branch_promote_into
+#            if parent:branch_promote_into exists remotely: BASE_TAG=branch_promote_into
+#            if image:branch_promote_into exists locally and the parent of image:branch_promote_into exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#            if image:branch_promote_into exists remotely and the parent of image:branch_promote_into exits locally, then BASE_TAG=(tag from 'parent of image:branch')
+#        until branch_promote_into == $$TOP_OF_TREE$$
+#
+#        or when BASE_TAG='latest': build list of above tags and associated times. BASE_TAG=(tag of most recent from list)
+#
 function build.baseTag()
 {
     local -r repoName=${1:?}
@@ -126,21 +141,6 @@ function build.baseTag()
     fi
 
     local branch=$(git.branch)
-    if [ "$branch" = 'HEAD' ]; then
-        local -a branches
-        mapfile -t branches < <(git log -n1 --oneline --decorate | \
-                                sed -e 's/[^\(]*(\([^\)]*\)).*/\1/' -e 's:origin/::g' -e 's:,::g' -e 's|tag:||g' -e 's|HEAD||g' | \
-                                awk '{if(length($0)>0) {print $0}}' RS=' '| \
-                                sort -u | \
-                                awk '{if(length($0)>0) {print $0}}')
-        if [ "${#branches[0]}" -eq 0 ]; then
-            term.elog "***ERROR: failure to determine current branch for $(git.repoName). Most likely on a detached HEAD"'\n' 'warn'
-            git log -8 --graph --abbrev-commit --decorate --all >&2
-            return 1
-        fi
-        branch="${branches[0]}"
-    fi
-
 
     echo "${branch//\//-}"
 }
