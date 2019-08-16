@@ -127,7 +127,7 @@ function docker-utilities.cmdLineArgs()
             shortOpts='e:km:qs:y'
             shift;;
 
-        getremoteimage)
+        getimage|getremoteimage)
             opts['cmd']='docker-utilities.getImage'
             opts['message']="Get one or more images from some remote, and push to $(registry.REGISTRY)"
             longOpts='quiet'
@@ -180,6 +180,9 @@ function docker-utilities.cmdLineArgs()
             longOpts='allRepos,quiet'
             shortOpts='aq'
             shift;;
+
+        *)
+           trap.die "invalid argument: $cmd" ;;
     esac
 
 
@@ -398,11 +401,12 @@ function docker-utilities.clean()
 
 
     # show results
-
-    local -i blocksUsedAfter="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
-    local -i recovered=$(( blocksUsedBefore - blocksUsedAfter ))
-    [ $recovered -le 0 ] || printf "Recovered %d kb\n" $recovered
-    echo
+    (
+        local -i blocksUsedAfter="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
+        local -i recovered=$(( blocksUsedBefore - blocksUsedAfter ))
+        [ $recovered -le 0 ] || printf "Recovered %d kb\n" $recovered
+        echo
+    ) >&2
 
     docker-utilities.show 'images' "$@"
 }
@@ -423,7 +427,7 @@ function docker-utilities.confirmImageDeletion()
         tags="${IMAGES_TO_DELETE[$image]}"
         printf '    %s : %s\n' "$image" "$tags" | sort >&2
     done
-    echo
+    echo >&2
 
     local prompt='[Yes/No/All/Quit]'
     [ "${#IMAGES_TO_DELETE[*]}" -eq 1 ] && prompt='[Yes/No]'
@@ -432,10 +436,10 @@ function docker-utilities.confirmImageDeletion()
 	digest="${image##*@}"
 
         if [ "${DO_DELETE:-0}" -eq 0 ]; then
-            echo -en "Delete $image $prompt ? "
+            echo -en "Delete $image $prompt ? " >&2
             local yesno='n'
             read yesno
-            echo
+            echo >&2
             yesno="${yesno,,}"
             [ "${yesno:0:1}" = 'n' ] && continue
             [ "${yesno:0:1}" = 'q' ] && break
@@ -443,7 +447,7 @@ function docker-utilities.confirmImageDeletion()
         fi
         registry.deleteImage "$repo" "$digest" || status=$?
     done
-    echo
+    echo >&2
     IMAGES_TO_DELETE=()
     return $status
 }
@@ -648,7 +652,7 @@ function docker-utilities.deleteTagInSpecificRepo()
 
     # push image back using remaining tags
     for tag in "${tags[@]}"; do
-        echo "pushing $(registry.SERVER)${name}:$tag"
+        echo "pushing $(registry.SERVER)${name}:$tag" >&2
         docker-utilities.run docker tag "$(registry.SERVER)$image" "$(registry.SERVER)${name}:$tag"
         docker-utilities.run docker push "$(registry.SERVER)${name}:$tag"
         docker-utilities.run docker rmi "$(registry.SERVER)${name}:$tag"
@@ -740,10 +744,10 @@ function docker-utilities.main()
 }
 
 #----------------------------------------------------------------------------------------------
+# push images to $(registry.SERVER)
 function docker-utilities.pushImage()
 {
     local -i status=0
-    term.elog "push images to $(registry.SERVER) :  $*"'\n' 'grey'
 
     local image
     local -a images=()
@@ -793,7 +797,8 @@ function docker-utilities.renameImage()
 function docker-utilities.report()
 {
     local reportType=${1:-}
-    shift
+    local -r report_json="/tmp/reportCatalog.$$.json"
+    local -r report_txt="./reportCatalog.txt"
 
     if [ "${reportType:-}" = 'catalog' ]; then
         registry.catalog
@@ -806,23 +811,23 @@ function docker-utilities.report()
 
     elif [ "${REPORT_FORMAT:-}" = 'json' ]; then
         if [ "${REPORT_OUTPUT:-}" ]; then
-            docker-utilities.reportCatalogAsJson "$@" > "${REPORT_OUTPUT}"
+            docker-utilities.reportCatalogAsJson "$@" > "$REPORT_OUTPUT"
         else
             docker-utilities.reportCatalogAsJson "$@"
         fi
 
     else
-        docker-utilities.reportCatalogAsJson "$@" > /tmp/reportCatalog.json
-        if docker-utilities.formatTextReport /tmp/reportCatalog.json ;then
+        docker-utilities.reportCatalogAsJson "$@" > "$report_json"
+        if docker-utilities.formatTextReport "$report_json" ;then
             if [ "${REPORT_OUTPUT:-}" ]; then
-                mv ./registryReport.txt "${REPORT_OUTPUT}"
+                mv "$report_txt" "${REPORT_OUTPUT}"
             else
-                cat ./registryReport.txt
-                rm ./registryReport.txt
+                cat "$report_txt"
+                rm "$report_txt"
            fi
         fi
     fi
-    [ ! -e /tmp/reportCatalog.json ] || rm /tmp/reportCatalog.json
+    [ ! -e "$report_json" ] || rm "$report_json"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -886,14 +891,16 @@ function docker-utilities.reportTagSummary()
             done
         done
 
-        [ "$digests" -gt 0 ] && echo "detected ${digests} image digests"
-        [ "$fingerprints" -gt 0 ] && echo "detected ${fingerprints} fingerprints"
-        if [ "${#tags[*]}" -gt 0 ]; then
-            echo 'detected the following tags'
-            for tag in "${!tags[@]}"; do
-                printf '    %s  : %d\n' "$tag"  "${tags[$tag]}"
-            done
-        fi
+        (
+            [ "$digests" -gt 0 ] && echo "detected ${digests} image digests"
+            [ "$fingerprints" -gt 0 ] && echo "detected ${fingerprints} fingerprints"
+            if [ "${#tags[*]}" -gt 0 ]; then
+                echo 'detected the following tags'
+                for tag in "${!tags[@]}"; do
+                    printf '    %s  : %d\n' "$tag"  "${tags[$tag]}"
+                done
+            fi
+        ) >&2
     else
         term.elog '\nNo content specified\n' 'warn'
     fi
@@ -924,7 +931,7 @@ function docker-utilities.retagImages()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.run()
 {
-    [ $DEBUG -ne 0 ] && echo -e "${grey}$(printf '%s ' "$@")$reset"
+    [ $DEBUG -ne 0 ] && (echo -e "${grey}$(printf '%s ' "$@")$reset" >&2)
     eval $@ > /dev/null
 }
 
@@ -953,10 +960,19 @@ function docker-utilities.show()
 
         networks)
             # show networks
-            local -a networks=( $( docker network ls | grep 'default' | awk "{ print \$1 }" ) )
-            docker network inspect "${networks[@]}" | \
-            jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
-               sort -t "." -k 4g && status=$? || status=$?
+            local -a hosts
+            local -a networks
+            mapfile -t networks < <(docker network ls)
+            echo -e "\e[97m${networks[0]}\e[0m"
+            unset "networks[0]"
+            for network in "${networks[@]}"; do
+                echo $network
+                mapfile -t hosts < <(docker network inspect "$(cut -d ' ' -f 1 <<< "$network")" | \
+                                     jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
+                                     sort -t "." -k 4g) && status=$? || status=$?
+                [ "${#hosts[*]}" -gt 0 ] || continue
+                printf '    %s\n' "${hosts[@]}"
+            done
             ;;
 
         processes)
