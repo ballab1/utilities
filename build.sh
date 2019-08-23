@@ -24,6 +24,7 @@ Usage:
         -l --logfile <logName>     log build results to <logName>. Defaults to build.YYYYMMDDhhmmss.log
         -o --os <osName>           specify OS <osName> that will be used. Default all OS types defined
         -p --push                  always push image to regitry
+           --no-push               never push image to registry
 
     build one or more component repos
 
@@ -150,7 +151,11 @@ function build.canPush()
 {
     local -r revision=${1:?}
 
-    [ "${BUILD_PUSH:-0}" != 0 ] && return 0
+    case "${BUILD_PUSH:-0}" in
+        -1) return 1;;
+        1)  return 0;;
+    esac
+
     if [[ "$revision" = *dirty* ]]; then
         echo -n '    '
         echo -en '\e[93m'
@@ -197,7 +202,9 @@ function build.cmdLineArgs()
 
     # Parse command-line options into above variable
     local -r progname="$( basename "${BASH_SOURCE[0]}" )"
-    local -r options=$(getopt --longoptions "help,Help,HELP,console,force,logdir:,logfile:,push,os:" --options "Hhcfl:po:" --name "$progname" -- "$@") || "$usage" $?
+    local -r longoptions='help,Help,HELP,console,force,logdir:,logfile:,push,no-push,os:'
+    local -r shortoptions='Hhcfl:po:'
+    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$progname" -- "$@") || "$usage" $?
     eval set -- "$options"
 
     local -A opts=()
@@ -217,6 +224,7 @@ function build.cmdLineArgs()
             -o|--o|--os)          opts['os']="$2"; shift 2;;
             -f|--f|--force)       opts['force']=1; shift 1;;
             -p|--p|--push)        opts['push']=1; shift 1;;
+               --no-push)         opts['push']=-1; shift 1;;
             --)                   shift; break;;
         esac
     done
@@ -611,8 +619,8 @@ function build.module()
           | sed -E 's|\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]||g' >>"${logBase}.out.log") \
           && status=$? || status=$?
         [[ $status -eq 9 || ! -s "${logBase}.out.log" ]] && rm "${logBase}.out.log"
-        if [ -f "${logBase}.err" ]; then
-            [ -s "${logBase}.err" ] || rm "${logBase}.err.log"
+        if [ -f "${logBase}.err.log" ]; then
+            [ -s "${logBase}.err.log" ] || rm "${logBase}.err.log"
         fi
 
 
@@ -814,6 +822,6 @@ fi
 source "$loader"
 appenv.loader "$fn"
 
-args=$( build.cmdLineArgs "$PWD" "$@" ) && status=$? || status=$?
+mapfile -t args < <( build.cmdLineArgs "$PWD" "$@" ) && status=$? || status=$?
 [ $status -eq 0 ] || exit $status
-"$fn" ${args[@]}
+"$fn" "${args[@]}"

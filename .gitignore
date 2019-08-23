@@ -1,0 +1,35 @@
+# Created by .gitignore support plugin (hsz.mobi)
+.idea
+.gradle
+*.iml
+*.tgz
+*.zip
+**/*.bak
+*.log
+
+# OSX
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+~*
+*~
+.directory
+.Trash-*
+gradlew*
+samples
+test
+log
+logs
+vols/*
+vols-rw/*
+build/container_build_framework*
+**/CRF.properties
+**/CBF.properties
+scanned.paths
+*.loaded
+*.json
+registryReport.groovy
+registryReport.txt
+build

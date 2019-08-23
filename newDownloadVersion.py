@@ -154,6 +154,7 @@ class CbfDownload:
 
     def checksum(self, version, versions):
         url = self.getUrl(version, versions)
+        print 'downloading '+url
         dlfile = tempfile.mktemp()
         try:
             cmd = 'wget --no-check-certificate --quiet --output-document {} {}'.format(dlfile, url)

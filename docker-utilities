@@ -37,8 +37,9 @@ Usage:
               | getremoteimage <imageName> <imageName> <imageName>
               | pushImage [ --fingerprint  ] <imageName> <imageName> <imageName>
               | rename <srcImageName> <dstImageName>
-              | report [[ --catalog ] | [ --tags [<repoName>] ] | [ --tag-summary [<repoName>] ] | [ --format <text|json> ] [ --output <fileName> ]]
+              | report [[ --catalog ] | [ --tags [<repoName>] ] | [ --summary ] | [ --tag-summary [<repoName>] ] | [ --format <text|json> ] [ --output <fileName> ]]
               | retagImages < newTag> [ <docker-compose.yml> ]
+              | retagLatest
               | show [ --images ]  [ --networks ] | [ --processes ] | [ --servcies ]
               | tag <regex>[:<regex>] [ --allRepos ]
                 [ -q|--quiet ] [ -y|--confirm_delete ]
@@ -64,8 +65,10 @@ Usage:
               --format      : format output as JSON|TEXT
               --output      : name of file to output <filename>
               --tags        : show the tags associated with a repository (as text)
+              --summary     : 
               --tag-summary : show a summary of tag usage for specified repos
         retagImages       Retag images defined in docker-compose.yml
+        retagLatest       retag dev to latest
         show              common 'docker commands' with specific options to make more usefule
               --images      : docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 
               --networks    : docker networks: also includes ip address and network name
@@ -153,9 +156,17 @@ function docker-utilities.cmdLineArgs()
 
         report)
             opts['cmd']='docker-utilities.report'
-            opts['message']="report local images and push them to $(registry.SERVER) "
-            longOpts='catalog,format:,output:,quiet,tag-summary,tags'
-            shortOpts='c:o:qt'
+            opts['message']="report remote images in $(registry.SERVER) "
+            longOpts='catalog,format:,output:,quiet,summary,tag-summary,tags'
+            shortOpts='c:o:qst'
+            numberOfArgs=0
+            shift;;
+
+        retaglatest)
+            opts['cmd']='docker-utilities.retagLatest'
+            opts['message']="retag all 'dev' tagged imagges to 'latest' and push to $(registry.SERVER)"
+            longOpts=''
+            shortOpts=''
             numberOfArgs=0
             shift;;
 
@@ -293,10 +304,16 @@ function docker-utilities.cmdLineArgs()
                 opts['message']="delete range of images in $(registry.SERVER) by specifying start time"
                 shift 2;;
 
+            --summary)
+                opts['oper']='summary'
+                opts['message']="generate a summary report for repos from $(registry.SERVER)"
+                numberOfArgs=0
+                shift;;
+
             -t|--tags)
                 opts['oper']='tags'
-                opts['message']="generate a report of the tags in specific repository from $(registry.SERVER)"
-                numberOfArgs=1
+                opts['message']="generate a summary report of the tags used by repos from $(registry.SERVER)"
+                numberOfArgs=0
                 shift;;
 
             --tag-summary)
@@ -327,6 +344,63 @@ function docker-utilities.cmdLineArgs()
     [ $numberOfArgs -gt 0 ] && [ $numberOfArgs -ne $# ] && trap.die 'invalid arguments!'
 
     appenv.results $(docker-utilities.removeRegistryReference "$@")
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function docker-utilities.addImageToList()
+{
+    local name=${1:?}
+    local tags=${2:?}
+
+    if [ "${IMAGES_TO_DELETE[$name]:-}" ]; then
+        IMAGES_TO_DELETE[$name]+=( "$tags" )
+    else
+        IMAGES_TO_DELETE[$name]="$tags"
+    fi
+}
+
+#----------------------------------------------------------------------------------------------
+function docker-utilities.catalogIterator()
+{
+    local fn=${1:?}
+    shift
+
+    local -i status=0
+    local -i content=0
+    local catalog id name repo tag
+    local -a repos catalog
+
+    local -a requests=( "$@" )
+    [ "${#requests[*]}" -gt 0 ] || requests=( '.+' )
+
+    catalog="$(docker-utilities.filterCatalog "$@")" # ignore errors
+
+    for name in "${requests[@]}"; do
+        if [[ "$name" = *@sha256:* ]]; then
+           repo="${name%@*}"
+           tag="${name##*@}"
+
+        elif [[ "$name" = *:* ]]; then
+            repo="${name%:*}"
+            tag="${name##*:}"
+
+        else
+            repo="$name"
+            tag='^.*$'
+        fi
+
+        mapfile -t repos < <(grep -Es '^'"$repo"'$' <<< "$catalog" ||:)
+        [ "${#repos[*]}" -gt 0 ] || continue
+        (( content++ )) ||:
+
+        for repo in "${repos[@]}"; do
+            "$fn" "$repo" "$tag" || status=1
+            [ $status -ne 0 ] && return $status
+        done
+    done
+
+    [ $content -eq 0 ] && term.elog '\nNo content specified\n' 'warn'
     return 0
 }
 
@@ -453,63 +527,6 @@ function docker-utilities.confirmImageDeletion()
 }
 
 #----------------------------------------------------------------------------------------------
-function docker-utilities.addImageToList()
-{
-    local name=${1:?}
-    local tags=${2:?}
-
-    if [ "${IMAGES_TO_DELETE[$name]:-}" ]; then
-        IMAGES_TO_DELETE[$name]+=( "$tags" )
-    else
-        IMAGES_TO_DELETE[$name]="$tags"
-    fi
-}
-
-#----------------------------------------------------------------------------------------------
-function docker-utilities.catalogIterator()
-{
-    local fn=${1:?}
-    shift
-
-    local -a requests=( "$@" )
-    [ "${#requests[*]}" -gt 0 ] || requests=( '.+' )
-
-    local -i status=0
-    local -i content=0
-    local id name repo tag
-    local -a repos catalog
-
-    catalog="$(registry.catalog)"
-
-    for name in "${requests[@]}"; do
-        if [[ "$name" = *@sha256:* ]]; then
-           repo="${name%@*}"
-           tag="${name##*@}"
-
-        elif [[ "$name" = *:* ]]; then
-            repo="${name%:*}"
-            tag="${name##*:}"
-
-        else
-            repo="${name%:*}"
-            tag='^.*$'
-        fi
-
-        mapfile -t repos < <(grep -Es '^'"$repo"'$' <<< "$catalog" ||:)
-        [ "${#repos[*]}" -gt 0 ] || continue
-        (( content++ )) ||:
-
-        for repo in "${repos[@]}"; do
-            "$fn" "$repo" "$tag" || status=1
-            [ $status -ne 0 ] && return $status
-        done
-    done
-
-    [ $content -eq 0 ] && term.elog '\nNo content specified\n' 'warn'
-    return 0
-}
-
-#----------------------------------------------------------------------------------------------
 function docker-utilities.delete()
 {
     local -r image=${1:?}
@@ -520,7 +537,7 @@ function docker-utilities.delete()
 
 
     eval "digests=( $(docker-utilities.digests "$image" 'notimes' | jq -r '.[]|.tags|=join(",")|"[\(.digest)]=\(.tags)"') )"
-    [ "${#digests[*]}" -le 0 ] && continue
+    [ "${#digests[*]}" -le 0 ] && return 0
 
     for digest in "${!digests[@]}"; do
         grep -Esq '^'"$tag"'$' <<< ${digests[$digest]} && docker-utilities.addImageToList "${image}@$digest" "${digests[$digest]}"
@@ -677,17 +694,16 @@ function docker-utilities.digests()
 }
 
 #----------------------------------------------------------------------------------------------
-function docker-utilities.formatTextReport()
+function docker-utilities.filterCatalog()
 {
-    local -r TOOLS="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    local -a catalog=( "$@" )
+    [ "${#catalog[*]}" -gt 0 ] || catalog=( '.+' )
 
-    docker run --rm \
-               --volume "$TOOLS":/home/groovy/scripts \
-               --volume "/tmp:/tmp" \
-               -e "JSON=/tmp/reportCatalog.json" \
-               --workdir /home/groovy/scripts \
-               "$(registry.REGISTRY)alpine/groovy:2.6-jre" \
-               groovy registryReport.groovy
+    local tmpfile="$(mktemp)"
+    printf '%s\n' "${catalog[@]}" > "$tmpfile"
+    registry.catalog | grep -E -f "$tmpfile" ||: # ignore errors
+    rm "$tmpfile"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -798,7 +814,7 @@ function docker-utilities.report()
 {
     local reportType=${1:-}
     local -r report_json="/tmp/reportCatalog.$$.json"
-    local -r report_txt="./reportCatalog.txt"
+    local -r report_txt="$PROGRAM_DIR/registryReport.txt"
 
     if [ "${reportType:-}" = 'catalog' ]; then
         registry.catalog
@@ -818,9 +834,9 @@ function docker-utilities.report()
 
     else
         docker-utilities.reportCatalogAsJson "$@" > "$report_json"
-        if docker-utilities.formatTextReport "$report_json" ;then
+        if docker-utilities.reportTextFormat "$report_json" ;then
             if [ "${REPORT_OUTPUT:-}" ]; then
-                mv "$report_txt" "${REPORT_OUTPUT}"
+                mv "$report_txt" "$REPORT_OUTPUT"
             else
                 cat "$report_txt"
                 rm "$report_txt"
@@ -833,13 +849,8 @@ function docker-utilities.report()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.reportCatalogAsJson()
 {
-    local -a catalog=( "$@" )
-    [ "${#catalog[*]}" -gt 0 ] || catalog=( '.+' )
-
-    local tmpfile="$(mktemp)"
-    printf '%s\n' "${catalog[@]}" > "$tmpfile"
-    mapfile -t catalog < <(registry.catalog | grep -E -f "$tmpfile" ||:) # ignore errors
-    rm "$tmpfile"
+    local -a catalog
+    mapfile -t catalog < <(docker-utilities.filterCatalog "$@") # ignore errors
 
     if [ "${#catalog[*]}" -gt 0 ]; then
         echo -n '['
@@ -862,14 +873,8 @@ function docker-utilities.reportCatalogAsJson()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.reportTagSummary()
 {
-    local -a catalog=( "$@" )
-    [ "${#catalog[*]}" -gt 0 ] || catalog=( '.+' )
-
-    local tmpfile="$(mktemp)"
-    printf '%s\n' "${catalog[@]}" > "$tmpfile"
-    mapfile -t catalog < <(registry.catalog | grep -E -f "$tmpfile" ||:) # ignore errors
-    rm "$tmpfile"
-
+    local -a catalog
+    mapfile -t catalog < <(docker-utilities.filterCatalog "$@") # ignore errors
     if [ "${#catalog[*]}" -gt 0 ]; then
         local -i fingerprints=0
         local -i digests=0
@@ -907,6 +912,20 @@ function docker-utilities.reportTagSummary()
 }
 
 #----------------------------------------------------------------------------------------------
+function docker-utilities.reportTextFormat()
+{
+    local -r report_json=${1:?}
+
+    docker run --rm \
+               --volume "$PROGRAM_DIR":/home/groovy/scripts \
+               --volume "/tmp:/tmp" \
+               -e "JSON=$report_json" \
+               --workdir /home/groovy/scripts \
+               "$(registry.REGISTRY)alpine/groovy:2.6-jre" \
+               groovy registryReport.groovy
+}
+
+#----------------------------------------------------------------------------------------------
 # retag images
 function docker-utilities.retagImages()
 {
@@ -926,6 +945,24 @@ function docker-utilities.retagImages()
             docker rmi "$image" || :
         done
     fi
+}
+
+#----------------------------------------------------------------------------------------------
+function docker-utilities.retagLatest()
+{
+    local tag='latest'
+
+    local image latest
+    local -a images=()
+    while read -r image; do
+        latest="${image%:*}:$tag"
+        images+=( "$latest" )
+        docker tag "$image" "$latest"
+    done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'dev')
+
+    INCLUDE_FINGERPRINT=1
+    docker-utilities.pushImage $(docker-utilities.removeRegistryReference "${images[@]}")
+    docker rmi "${images[@]}"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -1012,7 +1049,8 @@ declare -i status
 declare -a args
 declare -i DEBUG
 
-declare loader="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/appenv.bashlib"
+declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+declare -r loader="$PROGRAM_DIR/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries'
     exit 1
