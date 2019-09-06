@@ -110,7 +110,7 @@ function docker-utilities.cmdLineArgs()
     local -i numberOfArgs=0
 
     case "${cmd,,}" in
-        help)
+        help|-h|--help)
             opts['cmd']='docker-utilities.usage'
             shift;;
 
@@ -408,80 +408,7 @@ function docker-utilities.catalogIterator()
 #   clean: remove Old Containers and '<none>' images 
 function docker-utilities.clean()
 {
-    local -a collection
-    local -i blocksUsedBefore="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
-
-    # remove all containers which are stopped along with their associated volumes
-
-    collection=()
-    collection+=( $(docker ps --all --quiet --filter "status=dead" --format "{{.Names}}") )
-    collection+=( $(docker ps --all --quiet --filter "status=exited" --format "{{.Names}}") )
-    if [ "${#collection[*]}" -gt 0 ]; then
-        printf "Deleting %d exited containers\n" "${#collection[*]}"
-        docker rm --volumes "${collection[@]}"
-    fi
-
-
-    # remove any 'dangling' images  (those with <none> in name)
-
-    collection=( $(docker images --quiet --filter "dangling=true") )
-
-    local fingerprint image
-    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -s ':tmp' ||:); do
-        collection+=( $image )
-    done
-    for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>' ||:); do
-        fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
-        [ -z "${fingerprint:-}" ] && continue
-        [ "$fingerprint" != "${image##*:}" ] && continue
-        collection+=( $image )
-    done
-    for image in $((docker images | grep -s '<none>'  ||:) | awk '{if($1 == "<none>"){print $3}}'); do
-        fingerprint=$(docker inspect "$image" | jq -r '.[].Config.Labels."container.fingerprint"?') ||:
-        [ -z "${fingerprint:-}" ] && continue
-        collection+=( $image )
-    done
-    if [ "${#collection[*]}" -gt 0 ]; then
-        collection=( $(printf '%s\n' "${collection[@]}" | uniq) )
-        for image in $(docker ps --format '{{.Image}}' | uniq); do
-            [[ "${#collection[*]}" -gt 0 && $(grep -c "$image" <<< $(printf '%s\n' "${collection[@]}")) -gt 0 ]] && collection=( ${collection[@]/$image} )
-        done
-        if [ "${#collection[*]}" -gt 0 ]; then
-            printf "Deleting %d dangling/temporary images\n" "${#collection[*]}"
-            docker rmi "${collection[@]}"
-        fi
-    fi
-
-
-    # get list of volumes associated with running containers
-    collection=()
-    for volume in $(docker ps --all --quiet); do
-        collection+=( $(docker inspect "$volume" | jq -r '.[].Mounts[].Name | select(.)' | uniq) )
-    done
-    [ "${#collection[*]}" -gt 0 ] && printf "Detected %d mounts associated with running containers\n" "${#collection[*]}"
-
-
-    # remove directories associated with unused volumes
-    local volumes="$( printf "%s\n" "${collection[@]}" )"
-    if [ "${#collection[*]}" -gt 0 ]; then
-        local -i deletions=0
-        for dir in $(sudo find '/var/lib/docker/volumes/' -mindepth 1 -maxdepth 1 -type d); do
-            (grep "$dir" <<< "$volumes") && continue
-            sudo rm -rf "$dir"
-            (( deletions++ ))
-        done
-        [ $deletions -gt 0 ] && printf "Deleted %d directories associated with volumes no longer in use\n" $deletions
-    fi
-
-
-    # show results
-    (
-        local -i blocksUsedAfter="$(df /var/lib/docker/volumes | awk '{if (NR==2) {print $3}}')"
-        local -i recovered=$(( blocksUsedBefore - blocksUsedAfter ))
-        [ $recovered -le 0 ] || printf "Recovered %d kb\n" $recovered
-        echo
-    ) >&2
-
+    docker.clean
     docker-utilities.show 'images' "$@"
 }
 
@@ -752,6 +679,7 @@ function docker-utilities.main()
     term.elog "${opts['message']:-} : $*"'\n' 'grey'
     local status=0
     DEBUG=1
+
     "${opts['cmd']}" ${opts['oper']:-} "$@" && status=$? || status=$?
     if [ $status -eq 0 ] && [ "${opts['delete']:-}" ]; then
          docker-utilities.confirmImageDeletion && status=$? || status=$?
