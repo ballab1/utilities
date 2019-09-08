@@ -375,6 +375,7 @@ function docker-utilities.catalogIterator()
     [ "${#requests[*]}" -gt 0 ] || requests=( '.+' )
 
     catalog="$(docker-utilities.filterCatalog "$@")" # ignore errors
+    echo >&2
 
     for name in "${requests[@]}"; do
         if [[ "$name" = *@sha256:* ]]; then
@@ -423,7 +424,7 @@ function docker-utilities.confirmImageDeletion()
     local image name digest
     local -i status=0
 
-    term.elog '\nAbout to delete the following images:      <repo_name>@<digest> : <tags>\n'
+    term.elog '\nAbout to delete the following '${#IMAGES_TO_DELETE[*]}' images:      <repo_name>@<digest> : <tags>\n'
     for image in "${!IMAGES_TO_DELETE[@]}"; do
         tags="${IMAGES_TO_DELETE[$image]}"
         printf '    %s : %s\n' "$image" "$tags" | sort >&2
@@ -623,7 +624,12 @@ function docker-utilities.digests()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.filterCatalog()
 {
-    local -a catalog=( "$@" )
+    local image
+    local -a catalog=()
+    for image in "$@";do
+        catalog+=( "${image%:*}" )
+    done
+
     [ "${#catalog[*]}" -gt 0 ] || catalog=( '.+' )
 
     local tmpfile="$(mktemp)"
@@ -646,12 +652,12 @@ function docker-utilities.getImage()
         [ $status -ne 0 ] && return $status
     fi
 
-    docker tag "$image" "$(registry.REGISTRY)/thirdparty${image##*/}" || status=$?
-    [ $status -eq 0 ] && docker push "$(registry.REGISTRY)/thirdparty${image##*/}" || status=$?
+    docker tag "$image" "$(registry.REGISTRY)thirdparty/${image##*/}" || status=$?
+    [ $status -eq 0 ] && docker push "$(registry.REGISTRY)thirdparty/${image##*/}" || status=$?
     [ $status -ne 0 ] && return $status
 
     docker rmi "$image" || status=$?
-    docker rmi "$(registry.REGISTRY)/thirdparty${image##*/}" || status=$?
+    docker rmi "$(registry.REGISTRY)thirdparty/${image##*/}" || status=$?
     [ $status -ne 0 ] && term.elog 'WARNING:  Failed to cleanup temporary images' 'warn'
 
     return 0
@@ -680,6 +686,8 @@ function docker-utilities.main()
     local status=0
     DEBUG=1
 
+#    echo "cmd: ${opts['cmd']}" >&2
+#    echo "oper: ${opts['oper']}" >&2
     "${opts['cmd']}" ${opts['oper']:-} "$@" && status=$? || status=$?
     if [ $status -eq 0 ] && [ "${opts['delete']:-}" ]; then
          docker-utilities.confirmImageDeletion && status=$? || status=$?
@@ -849,7 +857,7 @@ function docker-utilities.reportTextFormat()
                --volume "/tmp:/tmp" \
                -e "JSON=$report_json" \
                --workdir /home/groovy/scripts \
-               "$(registry.REGISTRY)alpine/groovy:2.6-jre" \
+               "$(registry.REGISTRY)thirdparty/groovy:2.6-jre" \
                groovy registryReport.groovy
 }
 
