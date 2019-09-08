@@ -646,12 +646,12 @@ function docker-utilities.getImage()
         [ $status -ne 0 ] && return $status
     fi
 
-    docker tag "$image" "$(registry.REGISTRY)${image##*/}" || status=$?
-    [ $status -eq 0 ] && docker push "$(registry.REGISTRY)${image##*/}" || status=$?
+    docker tag "$image" "$(registry.REGISTRY)/thirdparty${image##*/}" || status=$?
+    [ $status -eq 0 ] && docker push "$(registry.REGISTRY)/thirdparty${image##*/}" || status=$?
     [ $status -ne 0 ] && return $status
 
     docker rmi "$image" || status=$?
-    docker rmi "$(registry.REGISTRY)${image##*/}" || status=$?
+    docker rmi "$(registry.REGISTRY)/thirdparty${image##*/}" || status=$?
     [ $status -ne 0 ] && term.elog 'WARNING:  Failed to cleanup temporary images' 'warn'
 
     return 0
