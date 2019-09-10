@@ -39,7 +39,7 @@ Usage:
               | rename <srcImageName> <dstImageName>
               | report [[ --catalog ] | [ --tags [<repoName>] ] | [ --summary ] | [ --tag-summary [<repoName>] ] | [ --format <text|json> ] [ --output <fileName> ]]
               | retagImages < newTag> [ <docker-compose.yml> ]
-              | retagLatest
+              | retagLatest [ <newTag> ]
               | show [ --images ]  [ --networks ] | [ --processes ] | [ --servcies ]
               | tag <regex>[:<regex>] [ --allRepos ]
                 [ -q|--quiet ] [ -y|--confirm_delete ]
@@ -68,7 +68,7 @@ Usage:
               --summary     : 
               --tag-summary : show a summary of tag usage for specified repos
         retagImages       Retag images defined in docker-compose.yml
-        retagLatest       retag dev to latest
+        retagLatest       retag dev to defined tag (or 'latest' if no tag defined)
         show              common 'docker commands' with specific options to make more usefule
               --images      : docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 
               --networks    : docker networks: also includes ip address and network name
@@ -132,7 +132,7 @@ function docker-utilities.cmdLineArgs()
 
         getimage|getremoteimage)
             opts['cmd']='docker-utilities.getImage'
-            opts['message']="Get one or more images from some remote, and push to $(registry.REGISTRY)"
+            opts['message']="Get one or more images from some remote, and push to $(registry.SERVER)thirdparty"
             longOpts='quiet'
             shortOpts='q'
             numberOfArgs=1
@@ -652,12 +652,12 @@ function docker-utilities.getImage()
         [ $status -ne 0 ] && return $status
     fi
 
-    docker tag "$image" "$(registry.REGISTRY)thirdparty/${image##*/}" || status=$?
-    [ $status -eq 0 ] && docker push "$(registry.REGISTRY)thirdparty/${image##*/}" || status=$?
+    docker tag "$image" "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
+    [ $status -eq 0 ] && docker push "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
     [ $status -ne 0 ] && return $status
 
     docker rmi "$image" || status=$?
-    docker rmi "$(registry.REGISTRY)thirdparty/${image##*/}" || status=$?
+    docker rmi "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
     [ $status -ne 0 ] && term.elog 'WARNING:  Failed to cleanup temporary images' 'warn'
 
     return 0
@@ -857,7 +857,7 @@ function docker-utilities.reportTextFormat()
                --volume "/tmp:/tmp" \
                -e "JSON=$report_json" \
                --workdir /home/groovy/scripts \
-               "$(registry.REGISTRY)thirdparty/groovy:2.6-jre" \
+               "$(registry.SERVER)thirdparty/groovy:2.6-jre" \
                groovy registryReport.groovy
 }
 
@@ -886,7 +886,7 @@ function docker-utilities.retagImages()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.retagLatest()
 {
-    local tag='latest'
+    local tag="${1:-latest}
 
     local image latest
     local -a images=()
@@ -912,7 +912,7 @@ function docker-utilities.run()
 function docker-utilities.show()
 {
     local -r mode=${1:?}
-    local -r filter=${2:-}
+    local filter=${2:-}
     
     local -i status=0
     case "$mode" in
@@ -924,6 +924,7 @@ function docker-utilities.show()
             echo -e "\e[97m${images[0]}\e[0m"
             unset images[0]
             if [ "${filter:-}" ]; then
+                [[ $filter == *:* ]] && filter=$(sed -e 's|:|\\s+|' <<< "$filter")                
                 (printf '%s\n' "${images[@]}" | sort | grep -E "$filter") && status=$? || status=$?
             else
                 printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
