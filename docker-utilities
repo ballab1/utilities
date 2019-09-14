@@ -886,7 +886,7 @@ function docker-utilities.retagImages()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.retagLatest()
 {
-    local tag="${1:-latest}
+    local tag="${1:-latest}"
 
     local image latest
     local -a images=()

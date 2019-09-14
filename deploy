@@ -14,6 +14,7 @@ Usage:
               | [ --init ]
               | [ --latest ]
               | [ --promote <branch> ]
+              | [ --tag <image_tag> ]
 
     Common options:
         -h --help              Display a basic set of usage instructions
@@ -26,6 +27,7 @@ Usage:
                                this retags the image with the target <branch>,
                                    on protected branches {eg: master or integration } the ':latest' tag is used
                                after a pull request has completed the new images should be pushed to the registry.
+        -t --tag <image_tag>   use specific set of image tags
 
 EOF
     exit "$exit_status"
@@ -113,7 +115,7 @@ function deploy.__initGlobals()
     : ${HOST_NAME:?"HOST_NAME has not been configured. Please update '$setup_config'"}
 
     # verify that all our environment variables have been set
-    (eval echo printf '%s %s\n' $(grep ':?}' docker-compose.yml) &> /dev/null) || trap.die 'undefined environment variables'
+    deploy.verifyEnvironmentForFile docker-compose.yml
 
     # ensure our log dir exists
     [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR" ||:
@@ -151,13 +153,14 @@ function deploy.cmdLineArgs()
     local usage='deploy.usage'
 
     # Parse command-line options into above variable
-    local -r longOpts='help,Help,HELP,clean,down,init,latest,promote:'
-    local -r shortOpts='Hhcdilp:'
+    local -r longOpts='help,Help,HELP,clean,down,init,latest,promote:,tag:'
+    local -r shortOpts='Hhcdilp:t:'
     local -r progname="$( basename "${BASH_SOURCE[0]}" )"
     local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$progname" -- "$@") || "$usage" $?
     eval set -- "$options"
 
     local -A opts=()
+    opts['tag']=${CONTAINER_TAG:-latest}
     [ "$base" ] && opts['base']="$base"
     while true; do
         case "${1:-}" in
@@ -169,6 +172,7 @@ function deploy.cmdLineArgs()
             -i|--i|--init)        opts['init']=1;          shift;;
             -l|--l|--latest)      opts['latest']='latest'; shift;;
             -p|--p|--promote)     opts['promote']=$2;    shift 2;;
+            -t|--t|--tag)         opts['tag']=$2;    shift 2;;
             --)                   shift; break;;
         esac
     done
@@ -376,6 +380,7 @@ function deploy.initialize()
     # now run our service tasks
     for task in $(printf '%s\n' "${!service_tasks[@]}" | sort); do
         chmod a+rx "${service_tasks[$task]}"
+        deploy.verifyEnvironmentForFile "${service_tasks[$task]}"
         "${service_tasks[$task]}" ||:
     done
 
@@ -392,7 +397,7 @@ function deploy.main()
     shift
     local -ra args=( "$@" )
 
-    deploy.__initGlobals "${opts['base']}" "${opts['latest']:-}"
+    deploy.__initGlobals "${opts['base']}" "${opts['tag']}" "${opts['latest']:-}"
 
     [ -z "${opts['clean']:-}" ] || deploy.clean
     mkdir -p "$WORKSPACE_DIR" ||:
@@ -779,6 +784,22 @@ function deploy.validateDockerComposeYaml()
 {
     local -r dc_yaml=${1:?}
     [ $(jq '.services[].ports[]' <<< "$dc_yaml" | sort | wc -l) -eq $(jq '.services[].ports[]' <<< "$dc_yaml"| sort -u) ] || return 1
+}
+
+#----------------------------------------------------------------------------------------------
+function deploy.verifyEnvironmentForFile()
+{
+    local -r file=${1:?}
+
+    local var
+    local -a unknown=()
+    while read -r var; do
+        [ -z "${!var:-}" ] && unknown+=( "$var" )
+    done < <(grep -v '\s*#'  "$file" | grep -F ':?}' | sed -E -e 's|.*\$\{||' -e 's|:\?\}.*$||' | sort -u)
+
+    if [ ${#unknown[*]} -gt 0 ]; then
+        trap.die 'The following environment variables are undefined:'$(printf '\n    %s' "${unknown[@]}")
+    fi
 }
 
 #----------------------------------------------------------------------------------------------
