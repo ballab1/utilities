@@ -1,3 +1,5 @@
+#!/usr/bin/env groovy
+
 import groovy.json.*
 
 import java.awt.AttributeValue
@@ -18,17 +20,26 @@ class RepoEntry {
     }
 
     //-------------------------------------
+    int getNumTags() {
+        tags.size()
+    }
+
+    //-------------------------------------
+    String list(String name) {
+        String out = ''
+        tags.sort().each { k ->
+            out += createTime + '      ' +name + ':' + k.toString() + '\n'
+        }
+        out
+    }
+
+    //-------------------------------------
     String toString() {
         String out = '       ' + digest + ', ' + createTime + '\n'
         tags.sort().each { k ->
             out += '          ' + k.toString() + '\n'
         }
         out
-    }
-
-    //-------------------------------------
-    int getNumTags() {
-        tags.size()
     }
 }
 
@@ -58,6 +69,18 @@ class RepoContents {
     //-------------------------------------
     int getNumImages() {
         digests.size()
+    }
+
+    //-------------------------------------
+    String list() {
+        String out = ''
+        digests.sort{it.createTime}.each { k ->
+            out += k.list(name)
+        }
+        if (numImages > 0) {
+            out += '\n'
+        }
+        out
     }
 
     //-------------------------------------
@@ -112,6 +135,18 @@ class JsonData {
     }
 
     //-------------------------------------
+    String list() {
+        String out = ''
+        repos.each { r ->
+            out += r.list()
+        }
+        if (numRepos > 0) {
+            out += '\n'
+        }
+        out
+    }
+
+    //-------------------------------------
     def parser(Map json) {
         json.data.each { k ->
             repos += new RepoContents(k)
@@ -140,6 +175,8 @@ class JsonData {
         repos.each { r ->
             out += r.report()
         }
+        out += '\n\n===============================================================================\n'
+        out += this.list()
         out
     }
 
