@@ -40,7 +40,7 @@ Usage:
               | report [[ --catalog ] | [ --tags [<repoName>] ] | [ --summary ] | [ --tag-summary [<repoName>] ] | [ --format <text|json> ] [ --output <fileName> ]]
               | retagImages < newTag> [ <docker-compose.yml> ]
               | retagLatest [ <newTag> ]
-              | show [ --images ]  [ --networks ] | [ --processes ] | [ --servcies ]
+              | show [ --images ]  [ --networks ] | [ --processes ] | [ --services ]
               | tag <regex>[:<regex>] [ --allRepos ]
                 [ -q|--quiet ] [ -y|--confirm_delete ]
 

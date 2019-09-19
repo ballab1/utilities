@@ -102,20 +102,19 @@ function deploy.__initGlobals()
     : ${CFG_EMAIL:?"CFG_EMAIL has not been configured. Please ensure that your 'git' configuration is valid"}	
  
 
-    # enable container logging during startup
-    : ${DEBUG_TRACE:=0}
-    export DEBUG_TRACE=$(( ++DEBUG_TRACE )) ||:
-
-
-    # import our setup configuration
-    lib.exportFileVars "${CONFIG_DIR}/setup.cfg"
-
     # verify we have the mandatory env variables defied
     : ${HOST_IP:?"HOST_IP has not been configured. Please update '$setup_config'"}
     : ${HOST_NAME:?"HOST_NAME has not been configured. Please update '$setup_config'"}
 
+    # import our setup configuration
+    lib.exportFileVars "${CONFIG_DIR}/setup.cfg" 'export'
+
     # verify that all our environment variables have been set
     deploy.verifyEnvironmentForFile docker-compose.yml
+
+    # enable container logging during startup
+    : ${DEBUG_TRACE:=0}
+    export DEBUG_TRACE=$(( ++DEBUG_TRACE )) ||:
 
     # ensure our log dir exists
     [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR" ||:
@@ -187,6 +186,7 @@ function deploy.containerTag()
     local -r container_tag=${1:-}
 
     local branch="$(git.branch)"
+    branch="${branch//\//-}"   # replace '/' with '-'
     case "$branch" in
         dev*)                      echo "$branch";;
         master|integration)        echo "$container_tag";;
@@ -380,7 +380,6 @@ function deploy.initialize()
     # now run our service tasks
     for task in $(printf '%s\n' "${!service_tasks[@]}" | sort); do
         chmod a+rx "${service_tasks[$task]}"
-        deploy.verifyEnvironmentForFile "${service_tasks[$task]}"
         "${service_tasks[$task]}" ||:
     done
 
