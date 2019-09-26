@@ -116,14 +116,16 @@ function docker-utilities.cmdLineArgs()
 
         clean)
             opts['cmd']='docker-utilities.clean'
+            opts['check']='docker.isRunning'
             opts['message']="clean docker environment by removing old images and stopped containers"
             longOpts=''
             shortOpts=''
             shift;;
 
         delete)
-            opts['delete']=1
             opts['cmd']='docker-utilities.catalogIterator'
+            opts['check']='docker.isRunning'
+            opts['delete']=1
             opts['oper']='docker-utilities.delete'
             opts['message']="delete images in $(registry.SERVER) by specifying regex"
             longOpts='confirm_delete,end:,keepTags,max:,quiet,start:'
@@ -132,6 +134,7 @@ function docker-utilities.cmdLineArgs()
 
         getimage|getremoteimage)
             opts['cmd']='docker-utilities.getImage'
+            opts['check']='docker.isRunning'
             opts['message']="Get one or more images from some remote, and push to $(registry.SERVER)thirdparty"
             longOpts='quiet'
             shortOpts='q'
@@ -140,6 +143,7 @@ function docker-utilities.cmdLineArgs()
 
         pushimage)
             opts['cmd']='docker-utilities.pushImage'
+            opts['check']='docker.isRunning'
             opts['message']="push images to $(registry.SERVER)"
             longOpts='fingerprint,quiet'
             shortOpts='fq'
@@ -148,6 +152,7 @@ function docker-utilities.cmdLineArgs()
 
         rename)
             opts['cmd']='docker-utilities.renameImage'
+            opts['check']='docker.isRunning'
             opts['message']="rename local images and push them to $(registry.SERVER)"
             longOpts='quiet'
             shortOpts='q'
@@ -164,6 +169,7 @@ function docker-utilities.cmdLineArgs()
 
         retaglatest)
             opts['cmd']='docker-utilities.retagLatest'
+            opts['check']='docker.isRunning'
             opts['message']="retag all 'dev' tagged imagges to 'latest' and push to $(registry.SERVER)"
             longOpts=''
             shortOpts=''
@@ -172,6 +178,7 @@ function docker-utilities.cmdLineArgs()
 
         retagimages)
             opts['cmd']='docker-utilities.retagImages'
+            opts['check']='docker.isRunning'
             opts['message']="retag images defined in docker-compose.yml "
             longOpts=''
             shortOpts=''
@@ -671,6 +678,9 @@ function docker-utilities.main()
     readonly opts
     shift
 
+    if [ "${opts['check']:-}" ]; then
+        "${opts['check']}" || trap.die 'Docker is not running'
+    fi
     [ "${opts['all']:-}" ] &&  TAG_ALLREPOS=1
     [ "${opts['do_delete']:-}" ] && DO_DELETE=1
     [ "${opts['end']:-}" ] &&  REPO_END=${opts['end']}
@@ -921,15 +931,17 @@ function docker-utilities.show()
             local -a images
             echo
             mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}")
-            echo -e "\e[97m${images[0]}\e[0m"
-            unset images[0]
-            if [ "${filter:-}" ]; then
-                [[ $filter == *:* ]] && filter=$(sed -e 's|:|\\s+|' <<< "$filter")                
-                (printf '%s\n' "${images[@]}" | sort | grep -E "$filter") && status=$? || status=$?
-            else
-                printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
+            if [ ${#images[*]} -gt 1 ]; then
+                echo -e "\e[97m${images[0]}\e[0m"
+                unset images[0]
+                if [ "${filter:-}" ]; then
+                    [[ $filter == *:* ]] && filter=$(sed -e 's|:|\\s+|' <<< "$filter")                
+                    (printf '%s\n' "${images[@]}" | sort | grep -E "$filter") && status=$? || status=$?
+                else
+                    printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
+                fi
+                echo
             fi
-            echo
             ;;
 
         networks)
@@ -937,16 +949,18 @@ function docker-utilities.show()
             local -a hosts
             local -a networks
             mapfile -t networks < <(docker network ls)
-            echo -e "\e[97m${networks[0]}\e[0m"
-            unset "networks[0]"
-            for network in "${networks[@]}"; do
-                echo $network
-                mapfile -t hosts < <(docker network inspect "$(cut -d ' ' -f 1 <<< "$network")" | \
-                                     jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
-                                     sort -t "." -k 4g) && status=$? || status=$?
-                [ "${#hosts[*]}" -gt 0 ] || continue
-                printf '    %s\n' "${hosts[@]}"
-            done
+            if [ ${#networks[*]} -gt 1 ]; then
+                echo -e "\e[97m${networks[0]}\e[0m"
+                unset "networks[0]"
+                for network in "${networks[@]}"; do
+                    echo $network
+                    mapfile -t hosts < <(docker network inspect "$(cut -d ' ' -f 1 <<< "$network")" | \
+                                         jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
+                                         sort -t "." -k 4g) && status=$? || status=$?
+                    [ "${#hosts[*]}" -gt 0 ] || continue
+                    printf '    %s\n' "${hosts[@]}"
+                done
+            fi
             ;;
 
         processes)
@@ -954,12 +968,14 @@ function docker-utilities.show()
             local -a containers
             echo
             mapfile -t containers < <(docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}")
-            echo -e "\e[97m${containers[0]}\e[0m"
-            unset "containers[0]"
-            if [ "${filter:-}" ]; then
-                (printf '%s\n' "${containers[@]}" | sort | grep -E "$filter") && status=$? || status=$?
-            else
-                printf '%s\n' "${containers[@]}" | sort && status=$? || status=$?
+            if [ ${#containers[*]} -gt 1 ]; then
+                echo -e "\e[97m${containers[0]}\e[0m"
+                unset "containers[0]"
+                if [ "${filter:-}" ]; then
+                    (printf '%s\n' "${containers[@]}" | sort | grep -E "$filter") && status=$? || status=$?
+                else
+                    printf '%s\n' "${containers[@]}" | sort && status=$? || status=$?
+                fi
             fi
             ;;
 

@@ -154,7 +154,7 @@ class CbfDownload:
 
     def checksum(self, version, versions):
         url = self.getUrl(version, versions)
-        print 'downloading '+url
+        print 'downloading ' + url
         dlfile = tempfile.mktemp()
         try:
             cmd = 'wget --no-check-certificate --quiet --output-document {} {}'.format(dlfile, url)
@@ -341,10 +341,10 @@ class GetArgs:
         if self.project is None:
             raise ValueError('no project specified')
 
-        self.pdr_dir = os.path.dirname(os.path.abspath(__file__))
+        self.pdr_dir = os.getcwd()
         project_dir = os.path.join(self.pdr_dir, self.project)
         if not os.path.isdir(project_dir):
-            raise ValueError('invalid project specified')
+            raise ValueError('invalid project specified: ' + project_dir)
         self.project_dir = project_dir
 
         downloads_dir = os.path.join(project_dir, 'build/action_folders/04.downloads')
