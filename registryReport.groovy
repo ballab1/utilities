@@ -103,7 +103,8 @@ class JsonData {
     ArrayList<RepoContents> repos = []
 
     //-------------------------------------
-    JsonData(String jsonFile) {
+    JsonData(String base, String jsonFile) {
+        this.base = base
         Map json = readJson(jsonFile)
         parser(json)
     }
@@ -135,18 +136,6 @@ class JsonData {
     }
 
     //-------------------------------------
-    String list() {
-        String out = ''
-        repos.each { r ->
-            out += r.list()
-        }
-        if (numRepos > 0) {
-            out += '\n'
-        }
-        out
-    }
-
-    //-------------------------------------
     def parser(Map json) {
         json.data.each { k ->
             repos += new RepoContents(k)
@@ -163,30 +152,57 @@ class JsonData {
 
     //-------------------------------------
     String report() {
-        def date = new Date()
-        def sdf = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss")
-        String out = '\nDate:  ' + sdf.format(date)
-        out += '\n\nTotal number of repos:  ' + numRepos
-        out += '\nTotal number of images: ' + numImages
-        out += '\nTotal number of tags:   ' + numTags
-        out += '\n\n===============================================================================\n'
-        out += this.toString()
-        out += '\n\n===============================================================================\n'
-        repos.each { r ->
-            out += r.report()
-        }
-        out += '\n\n===============================================================================\n'
-        out += this.list()
-        out
+        this.reportSummary()
+        this.reportDetails()
+        this.reportList()
+        ''
     }
 
     //-------------------------------------
-    String toString() {
-        String out = 'Summary:\n'
+    String reportDetails() {
+        def out = this.reportFile('reportDetails.txt')
+        out << 'Repository Details:\n\n'
         repos.each { r ->
-            out += r.summary()
+            out << r.report()
         }
-        out
+        ''
+    }
+
+    //-------------------------------------
+    def reportFile(String name) {
+        def out = new File("${base}/${name}")
+        if ( out.exists() ) {
+            out.delete()
+        }
+        def date = new Date()
+        def sdf = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss")
+        out <<  '\nDate:  ' + sdf.format(date) + '\n\n'
+        out << 'Overview:'
+        out << '\nTotal number of repos:  ' + numRepos
+        out << '\nTotal number of images: ' + numImages
+        out << '\nTotal number of tags:   ' + numTags
+        out << '\n\n'
+        return out
+    }
+
+    //-------------------------------------
+    String reportList() {
+        def out = this.reportFile('reportList.txt')
+        out << 'Image List:\n\n'
+        repos.each { r ->
+            out << r.list()
+        }
+        ''
+    }
+
+    //-------------------------------------
+    String reportSummary() {
+        def out = this.reportFile('summary.txt')
+        out << 'Summary:\n\n'
+        repos.each { r ->
+            out << r.summary()
+        }
+        ''
     }
 }
 
@@ -199,13 +215,6 @@ class JsonData {
 def base = System.getenv('BASE') ?: '/home/groovy/scripts'
 def jsonFile = System.getenv('JSON') ?: "${base}/registryReport.json"
 
-def processor = new JsonData(jsonFile)
-def out = new File("${base}/registryReport.txt")
-if ( out.exists() ) {
-    out.delete()
-}
-out << processor.report()
-
-//println 'done.'
-
+def processor = new JsonData(base, jsonFile)
+processor.report()
 ''
