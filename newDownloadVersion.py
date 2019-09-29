@@ -73,7 +73,6 @@ def backup_file(orgfile, tmpname):
     os.rename(tmpname, orgfile)
     print 'updated {}'.format(orgfile)
 
-
 def update_file(srcfile, obj):
     tmpfile = srcfile + '.new'
     if os.path.isfile(tmpfile):
@@ -83,6 +82,17 @@ def update_file(srcfile, obj):
             f.write(obj.test(line))
         f.flush()
     backup_file(srcfile, tmpfile)
+
+def update_ref(ref, line):
+    matchobj = re.match(r"^\s*(\w+)=(.*)$", line, re.M)
+    if matchobj is None:
+        return ref
+
+    key = '${' + matchobj.group(1) + '}'
+    val = matchobj.group(2)
+    while ref.find(key) > 0:
+        ref = ref.replace(key, val)
+    return ref
 
 
 class CbfDownload:
@@ -148,8 +158,7 @@ class CbfDownload:
         vstring = '${' + self.name + "['version']}"
         url = url.replace(vstring, version)
         for key,val in self.dict.iteritems():
-            vstring = "${{{}['{}']}}".format(self.name, key)
-            url = url.replace(vstring, val)
+            url = url.replace(key, val)
         return versions.check(url)
 
     def checksum(self, version, versions):
@@ -193,24 +202,11 @@ class CbfVersions:
             for osfile in self.files:
                 fname = os.path.join(self.vdir, osfile)
                 if os.path.isfile(fname):
-                    url = url
+                    ref = url
                     with open(fname) as f:
                         for line in f:
-                            matchobj = re.match(r"^\s*(\w+)=(.*)$", line, re.M)
-                            if matchobj is None:
-                                continue
-                            key = matchobj.group(1)
-                            val = matchobj.group(2)
-                            if url.find(key) < 0:
-                                continue
-                            vstring = '$' + key
-                            url = url.replace(vstring, val)
-                            if url.find(key) < 0:
-                                return url
-                            vstring = '${' + key + '}'
-                            url = url.replace(vstring, val)
-                            if url.find(key) < 0:
-                                return url
+                            ref = update_ref(ref, line)
+                    return ref
         return url
 
     def test(self, line):
