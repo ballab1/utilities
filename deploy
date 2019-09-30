@@ -38,7 +38,8 @@ EOF
 function deploy.__initGlobals()
 {
     local -r base_dir="${1:?}"
-    local -r container_tag="${2:-}"
+    local -r container_tag="${2:?}"
+    local -r latest="${3:-}"
 
     export START_TIME="$(date)"
 
@@ -82,7 +83,7 @@ function deploy.__initGlobals()
     export SECRETS_DIR="${WORKSPACE_DIR}/.secrets"
     readonly SECRETS_DIR
 
-    export CONTAINER_TAG="${CONTAINER_TAG:-$(deploy.containerTag "$container_tag")}"
+    export CONTAINER_TAG="$container_tag"
 
     export CFG_USER
     : ${CFG_USER:=$(git.user)}
@@ -169,9 +170,9 @@ function deploy.cmdLineArgs()
             -c|--c|--clean)       opts['clean']=1;         shift;;
             -d|--d|--down)        opts['down']=1;          shift;;
             -i|--i|--init)        opts['init']=1;          shift;;
-            -l|--l|--latest)      opts['latest']='latest'; shift;;
-            -p|--p|--promote)     opts['promote']=$2;    shift 2;;
-            -t|--t|--tag)         opts['tag']=$2;    shift 2;;
+            -l|--l|--latest)      opts['latest']='HEAD';   shift;;
+            -p|--p|--promote)     opts['promote']=$2;      shift 2;;
+            -t|--t|--tag)         opts['tag']=$2;          shift 2;;
             --)                   shift; break;;
         esac
     done
@@ -189,7 +190,7 @@ function deploy.containerTag()
     branch="${branch//\//-}"   # replace '/' with '-'
     case "$branch" in
         dev*)                      echo "$branch";;
-        master|integration)        echo "$container_tag";;
+        master|integration)        echo "${container_tag:-$branch}";;
         *)                         echo 'latest';;
     esac
 }
@@ -396,7 +397,13 @@ function deploy.main()
     shift
     local -ra args=( "$@" )
 
-    deploy.__initGlobals "${opts['base']}" "${opts['tag']}" "${opts['latest']:-}"
+    local tag="${CONTAINER_TAG:-${opts['tag']:-}}"
+    if [ -z "${tag:-}" ]; then
+        local default
+        [ "${opts['latest']:-}" == 'HEAD' ] && default='latest'
+        tag="$(deploy.containerTag "$default")"
+    fi
+    deploy.__initGlobals "${opts['base']}" "$tag" "${opts['latest']:-}"
 
     [ -z "${opts['clean']:-}" ] || deploy.clean
     mkdir -p "$WORKSPACE_DIR" ||:
@@ -425,7 +432,7 @@ function deploy.main()
 
     #  restart devops_container_environment  (performs configuration if needed)
     term.log '$deploy.restart 2>&1 | tee restart.log\n' 'grey'
-    deploy.restart 2>&1 | tee "${WORKSPACE_DIR}/restart.log"
+    deploy.restart "${opts['latest']:-}" 2>&1 | tee "${WORKSPACE_DIR}/restart.log"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -547,6 +554,8 @@ export -f deploy.replaceIpAddresses
 #----------------------------------------------------------------------------------------------
 function deploy.restart()
 {
+    local latest=${1:-}
+
     echo "CONTAINER_TAG: ${CONTAINER_TAG:-<using default>}" >&2
 
     # initialize workspace if required 'docker-compose.yml' is missing
@@ -557,7 +566,7 @@ function deploy.restart()
     deploy.removeCBFlogs
 
     # restart our environment
-    if ! deploy.restartContainers "$WORKSPACE_YAML"; then
+    if ! deploy.restartContainers "$WORKSPACE_YAML" "$latest"; then
         term.log 'Failed to succussfully deploy container services.\n' 'white'
         exit 0
     fi
@@ -581,6 +590,7 @@ function deploy.restart()
 function deploy.restartContainers()
 {
     local -r dc_yaml=${1:?}
+    local -r latest=${2:-}
     local -i status
 
     # stop any running containers
@@ -602,7 +612,7 @@ function deploy.restartContainers()
     [ $status -eq 0 ] || return $status
 
     # fixup docker-compose.yml to reflect the image versions in use
-    if [ "${CONTAINER_TAG:-}" = 'latest' ]; then
+    if [ "${latest:-}" = 'HEAD' ]; then
         echo
         # Updating reference docker-compose.yml
         deploy.updateDockerCompose 'updateWsYaml'
@@ -751,7 +761,6 @@ function deploy.updateDockerCompose()
             fi
         done < <(cat "$src_yaml")
     ) > "$tmp_file"
-
 
     # if there are no changes, delete tmp file
     if [ "$(lib.fileSha256 "$dst_yaml")" = "$(lib.fileSha256 "$tmp_file")" ]; then
