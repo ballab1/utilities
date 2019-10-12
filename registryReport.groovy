@@ -105,13 +105,17 @@ class JsonData {
     //-------------------------------------
     JsonData(String base, String jsonFile) {
         this.base = base
-        Map json = readJson(jsonFile)
-        parser(json)
+
+        def jsonFileData = new File(jsonFile)
+        if (jsonFileData.exists() && jsonFileData.text) {
+            def slurper = new JsonSlurper()
+            Map json = slurper.parseText('{"data":'+jsonFileData.text+'}')
+            parser(json)
+        }
     }
 
     //-------------------------------------
-    private int getNumImages()
-    {
+    private int getNumImages()  {
         int imageCount = 0
         repos.each { r ->
             imageCount += r.numImages
@@ -120,14 +124,12 @@ class JsonData {
     }
 
     //-------------------------------------
-    private int getNumRepos()
-    {
+    private int getNumRepos() {
         return repos.size()
     }
 
     //-------------------------------------
-    private int getNumTags()
-    {
+    private int getNumTags() {
         int tagCount = 0
         repos.each { r ->
             tagCount += r.numTags
@@ -143,18 +145,16 @@ class JsonData {
     }
 
     //-------------------------------------
-    def readJson(String filename) {
-        def jsonFileData = new File(filename)
-
-        def slurper = new JsonSlurper()
-        slurper.parseText('{"data":'+jsonFileData.text+'}')
-    }
-
-    //-------------------------------------
     String report() {
-        this.reportSummary()
-        this.reportDetails()
-        this.reportList()
+        if (repos.size() == 0) {
+            System.err << 'no data found'
+        }
+
+        else {
+           this.reportSummary()
+           this.reportDetails()
+           this.reportList()
+        }
         ''
     }
 

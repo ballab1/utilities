@@ -6,6 +6,8 @@
 *.zip
 **/*.bak
 *.log
+*.txt
+*.json
 
 # OSX
 .DS_Store

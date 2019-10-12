@@ -18,7 +18,7 @@ Usage:
 
     Common options:
         -h --help                  Display a basic set of usage instructions
-        -c --console               log build info to conolse : default is to log to logdir and just display summary on cpnsole
+        -c --console               log build info to conolse : default is to log to logdir and just display summary on console
         -f --force                 force build : do not check if fingerprint exists locally or in registry
            --logdir                log directory. If not specified, defalts to
         -l --logfile <logName>     log build results to <logName>. Defaults to build.YYYYMMDDhhmmss.log
@@ -172,9 +172,11 @@ function build.cbfVersion()
     [ -d container_build_framework ] || trap.die 'No framework directory located'
     [ -e container_build_framework/.git ] || trap.die 'CBF is not a git directory'
 
-    local filename="$(git.origin 'container_build_framework')"
-    [[ "$filename" == *-dirty* ]] && return 1
+    local commit="$(git.origin 'container_build_framework')"
+    [[ "$commit" == *-dirty* ]] && return 1
 
+    # pass git tree hash to 'custom.cbfVersion' so that we only depend on the contents in GIT
+    local filename="$(git.lsTree 'HEAD' 'container_build_framework')"
     custom.cbfVersion "$filename"
     return 0
 }
