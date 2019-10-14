@@ -176,7 +176,7 @@ function build.cbfVersion()
     [[ "$commit" == *-dirty* ]] && return 1
 
     # pass git tree hash to 'custom.cbfVersion' so that we only depend on the contents in GIT
-    local filename="$(git.lsTree 'HEAD' 'container_build_framework')"
+    local filename="$(git.lsTree 'HEAD' 'container_build_framework' | awk '{print $3}')"
     custom.cbfVersion "$filename"
     return 0
 }
@@ -551,6 +551,43 @@ function build.logToKafka()
 }
 
 #----------------------------------------------------------------------------------------------
+function build.main()
+{
+    local -A opts
+    eval "opts=( $1 )"
+    readonly opts
+    shift
+
+    export BUILD_ALWAYS
+    export BUILD_PUSH
+    export CBF_VERSION
+    export CONSOLE_LOG
+    export CONTAINER_OS
+    export CONTAINER_TAG
+    export KAFKA_BOOTSTRAP_SERVERS
+    export KAFKA_PRODUCER
+    export VERSIONS_DIRECTORY
+
+
+    [ "${opts['force']:-}" ]  && BUILD_ALWAYS="${opts['force']}"
+    [ "${opts['push']:-}" ]   && BUILD_PUSH="${opts['push']}"
+    [ "${opts['os']:-}" ]     && CONTAINER_OS="${opts['os']}"
+    CONSOLE_LOG="${opts['conlog']:-0}"
+
+
+    local -i status=0
+    if [ "${opts['logfile']:-}" ]; then
+        mkdir -p "$(dirname "${opts['logfile']}")"
+        eval echo 'build.all "${opts['base']}" "${opts['logdir']}" "$@" 2>&1 | tee '"${opts['logfile']}"
+        (build.all "${opts['base']}" "${opts['logdir']}" "$@" 2>&1 | tee "${opts['logfile']}") && status=$? || status=$?
+    else
+        eval echo 'build.all "${opts['base']}" "${opts['logdir']}" "$@"'
+        (build.all "${opts['base']}" "${opts['logdir']}" "$@") && status=$? || status=$?
+    fi
+    return $status
+}
+
+#----------------------------------------------------------------------------------------------
 function build.module()
 {
     local -r containerOS=${1:?}
@@ -770,51 +807,10 @@ function build.verifyModules()
 }
 
 #----------------------------------------------------------------------------------------------
-function build.wrapper()
-{
-    local -A opts
-    eval "opts=( $1 )"
-    readonly opts
-    shift
-
-    export BUILD_ALWAYS
-    export BUILD_PUSH
-    export CBF_VERSION
-    export CONSOLE_LOG
-    export CONTAINER_OS
-    export CONTAINER_TAG
-    export KAFKA_BOOTSTRAP_SERVERS
-    export KAFKA_PRODUCER
-    export VERSIONS_DIRECTORY
-
-
-    [ "${opts['force']:-}" ]  && BUILD_ALWAYS="${opts['force']}"
-    [ "${opts['push']:-}" ]   && BUILD_PUSH="${opts['push']}"
-    [ "${opts['os']:-}" ]     && CONTAINER_OS="${opts['os']}"
-    CONSOLE_LOG="${opts['conlog']:-0}"
-
-
-    local -i status=0
-    if [ "${opts['logfile']:-}" ]; then
-        mkdir -p "$(dirname "${opts['logfile']}")"
-        eval echo 'build.all "${opts['base']}" "${opts['logdir']}" "$@" 2>&1 | tee '"${opts['logfile']}"
-        (build.all "${opts['base']}" "${opts['logdir']}" "$@" 2>&1 | tee "${opts['logfile']}") && status=$? || status=$?
-    else
-        eval echo 'build.all "${opts['base']}" "${opts['logdir']}" "$@"'
-        (build.all "${opts['base']}" "${opts['logdir']}" "$@") && status=$? || status=$?
-    fi
-    return $status
-}
-
-#----------------------------------------------------------------------------------------------
 #
 #      MAIN
 #
 #----------------------------------------------------------------------------------------------
-
-declare -i status
-declare -a args
-declare fn=build.wrapper
 
 declare loader="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/appenv.bashlib"
 if [ ! -e "$loader" ]; then
@@ -822,8 +818,11 @@ if [ ! -e "$loader" ]; then
     exit 1
 fi
 source "$loader"
-appenv.loader "$fn"
+appenv.loader 'build.main'
 
+
+declare -i status
+declare -a args
 mapfile -t args < <( build.cmdLineArgs "$PWD" "$@" ) && status=$? || status=$?
-[ $status -eq 0 ] || exit $status
-"$fn" "${args[@]}"
+[ $status -eq 0 ] && build.main "${args[@]}" && status=$? || status=$?
+exit $status

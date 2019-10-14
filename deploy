@@ -341,7 +341,7 @@ function deploy.fixupDCLineAfterRun()
         line="$(deploy.containerVersion "$line" "$service" | jq -r "$property")"
     fi
 
-    # update any versions  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
+    # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
     while read -r keyName; do
         # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
         line="$(sed -E 's|^(\s+.*\$\{'${keyName}':-)[^\}]+(}.*)$|\1'${!keyName}'\2|' <<< "$line")"
@@ -368,7 +368,7 @@ function deploy.fixupDCLineBeforeRun()
     # don't copy comments to output
     grep -Eq '^\s*#' <<< "$line" && return 0
 
-    # update any versions  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
+    # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
     while read -r keyName; do
         # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
         line="$(sed -E 's|^(\s+.*\$\{'${keyName}':-)[^\}]+(}.*)$|\1'${!keyName}'\2|' <<< "$line")"

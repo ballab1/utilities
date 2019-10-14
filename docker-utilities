@@ -44,10 +44,10 @@ Usage:
               | show [ --images ] | [ --networks ] | [ --processes ] | [ --services ]
 
     Common options:
-        -u --user <username>
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
         -c --credentials <credentials_file>   File container key/value pairs for user=pwd
-        -q --quiet             Confirm action, otherwise do not delete anything
-        -y --confirm_delete    Confirm action, otherwise do not delete anything
+        -q --quiet                            Confirm action, otherwise do not delete anything
+        -y --confirm_delete                   Confirm action, otherwise do not delete anything
 
     Commands:
         help              Display a basic set of usage instructions
@@ -114,6 +114,8 @@ function docker-utilities.helpFor_delete()
                             : delete images by specifying image@digest
 
     Common options:
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
+        -c --credentials <credentials_file>   File container key/value pairs for user=pwd
         -q --quiet             Confirm action, otherwise do not delete anything
         -y --confirm_delete    Confirm action, otherwise do not delete anything
 
@@ -422,7 +424,7 @@ function docker-utilities.cmdLineArgs()
 
             -credentials|--credentials)
                 [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
-                opts['credentials']="$1"
+                opts['credentials']="$2"
                 shift 2;;
 
             -catalog|--catalog)
