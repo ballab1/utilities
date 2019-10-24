@@ -20,11 +20,14 @@ function __init.loader() {
 
     # only load libraries from bashlib (not below). Sort to be deterministic
     local __libdir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-    __libdir="$(readlink -f "${__libdir}/bashlib")"
+    __libdir="$(readlink -f "$__libdir")"
     local -a __libs
-    mapfile -t __libs < <(find "$__libdir" -maxdepth 1 -mindepth 1 -name '*.bashlib' | sort)
+    mapfile -t __libs < <(find "$__libdir" -maxdepth 1 -mindepth 1 -name '*.bashlib' -not -name 'appenv.bashlib' | sort)
+    if [ "${#__libs[*]}" -eq 0 ] && [ -d "${__libdir}/bashlib" ]; then
+        mapfile -t __libs < <(find "${__libdir}/bashlib" -maxdepth 1 -mindepth 1 -name '*.bashlib' -not -name 'appenv.bashlib' | sort)
+    fi
     if [ "${#__libs[*]}" -eq 0 ] && [ -d /usr/local/crf/bashlib ]; then
-        mapfile -t __libs < <(find /usr/local/crf/bashlib -maxdepth 1 -mindepth 1 -name '*.bashlib' | sort)
+        mapfile -t __libs < <(find /usr/local/crf/bashlib -maxdepth 1 -mindepth 1 -name '*.bashlib' -not -name 'appenv.bashlib' | sort)
     fi
 
     if [ "${#__libs[*]}" -gt 0 ]; then

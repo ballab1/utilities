@@ -108,7 +108,7 @@ function deploy.__initGlobals()
     readonly CFG_EMAIL
 
     # import our setup configuration
-    lib.exportFileVars "${CONFIG_DIR}/setup.cfg" 'export'
+    lib.exportFileVars "${CONFIG_DIR}/setup.cfg" 'export' 'true'
 
     # verify that all our environment variables have been set
     deploy.verifyEnvironmentForFile docker-compose.yml
@@ -127,8 +127,8 @@ function deploy.clean()
 {
     local network
     # check networks to determine if there are running containers
-    local -a networks=(  'devops-container-net'
-                         "$(basename "${WORKSPACE_DIR}")_default"
+    local -a networks=( $(docker.yamlToJson docker-compose.yml | jq -r '.networks|try .[].name')
+                        "$(basename "${WORKSPACE_DIR}")_default"
                        )
     for network in "${networks[@]}"; do
         deploy.down "$network" && break
@@ -172,7 +172,7 @@ function deploy.cmdLineArgs()
         esac
     done
 
-    [ $# -eq 0 ] || term.log 'Ignoring extra arguments' 'warn'
+    [ $# -eq 0 ] || term.elog 'Ignoring extra arguments\n' 'warn'
     appenv.results
 }
 
@@ -315,7 +315,7 @@ function deploy.down()
     sudo cp "$CONFIG_YAML" "$WORKSPACE_YAML"
     sudo  sed -Ei -e 's|(:\?})|:-}|g' "$WORKSPACE_YAML"
 
-    term.log 'INFO: bringing down containers to allow "workspace" to be cleaned5\n' 'lt_magenta'
+    term.log 'INFO: bringing down containers to allow "workspace" to be refreshed\n' 'lt_magenta'
     term.log '$docker-compose down\n' 'grey'
     docker-compose --file "$WORKSPACE_YAML" down ||:
 
@@ -840,7 +840,7 @@ function deploy.verifyEnvironmentForFile()
     local -a unknown=()
     while read -r var; do
         [ -z "${!var:-}" ] && unknown+=( "$var" )
-    done < <(grep -v '\s*#'  "$file" | grep -F ':?}' | sed -E -e 's|.*\$\{||' -e 's|:\?\}.*$||' | sort -u)
+    done < <(grep -v '\s*#'  "$file" | grep -F ':?}' | sed -E -e 's|.*\$\{||' -e 's|:\?\}.*$||' | sort -u ||: )
 
     if [ ${#unknown[*]} -gt 0 ]; then
         trap.die 'The following environment variables are undefined:'$(printf '\n    %s' "${unknown[@]}")
