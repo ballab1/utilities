@@ -38,8 +38,6 @@ EOF
 function deploy.__initGlobals()
 {
     local -r base_dir="${1:?}"
-    local -r container_tag="${2:?}"
-    local -r latest="${3:-}"
 
     export START_TIME="$(date)"
 
@@ -83,7 +81,6 @@ function deploy.__initGlobals()
     export SECRETS_DIR="${WORKSPACE_DIR}/.secrets"
     readonly SECRETS_DIR
 
-    export CONTAINER_TAG="$container_tag"
 
     export CFG_USER
     : ${CFG_USER:=$(git.user)}
@@ -148,29 +145,44 @@ function deploy.cmdLineArgs()
     local usage='deploy.usage'
 
     # Parse command-line options into above variable
-    local -r longOpts='help,Help,HELP,clean,down,init,latest,promote:,tag:'
-    local -r shortOpts='Hhcdilp:t:'
+    local -r longOpts='help,Help,HELP,clean,down,init,latest,nodown,promote:,tag:'
+    local -r shortOpts='Hhcdilnp:t:'
     local -r progname="$( basename "${BASH_SOURCE[0]}" )"
     local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$progname" -- "$@") || "$usage" $?
     eval set -- "$options"
 
     local -A opts=()
-    opts['tag']=${CONTAINER_TAG:-latest}
     [ "$base" ] && opts['base']="$base"
     while true; do
         case "${1:-}" in
             -h|--h|--help|-help)  "$usage" 1;;
             -H|--H|--HELP|-HELP)  "$usage" 1;;
             --Help|-Help)         "$usage" 1;;
-            -c|--c|--clean)       opts['clean']=1;         shift;;
-            -d|--d|--down)        opts['down']=1;          shift;;
-            -i|--i|--init)        opts['init']=1;          shift;;
-            -l|--l|--latest)      opts['latest']='HEAD';   shift;;
-            -p|--p|--promote)     opts['promote']=$2;      shift 2;;
-            -t|--t|--tag)         opts['tag']=$2;          shift 2;;
+            -c|--c|--clean)       opts['clean']=1;          shift;;
+            -d|--d|--down)        opts['down']=1;           shift;;
+            -i|--i|--init)        opts['init']=1;           shift;;
+            -l|--l|--latest)      opts['latest']='HEAD';    shift;;
+            -n|--n|--nodown*)     opts['local']=1;          shift;;
+            -p|--p|--promote)     opts['promote']=$2;       shift 2;;
+            -t|--t|--tag)         opts['container_tag']=$2; shift 2;;
             --)                   shift; break;;
         esac
     done
+
+
+    # set default value for 
+    local tag="${opts['container_tag']:-}"
+    if [ -z "${tag:-}" ] && [ -z "${opts['local']:-}" ]; then
+        if [ "${CONTAINER_TAG:-}" ]; then
+            tag="$CONTAINER_TAG"
+        else
+            local default
+            [ "${opts['latest']:-}" == 'HEAD' ] && default='latest'
+            tag="$(deploy.containerTag "${default:-}")"
+        fi
+        opts['container_tag']="$tag"
+    fi
+
 
     [ $# -eq 0 ] || term.elog 'Ignoring extra arguments\n' 'warn'
     appenv.results
@@ -244,7 +256,7 @@ function deploy.containerVersion()
             fingerprint=$(docker inspect "$container" | jq -r '.[].Config.Labels."container.fingerprint"')
 
             # if the fingerprint exists, replace image tag with fingerprint
-            [ "$fingerprint" != 'null' ] && newline=${newline}':${CONTAINER_TAG:-'${fingerprint}'}'
+            [ "$fingerprint" != 'null' ] && newline=${newline}':${OPTS['container_tag']:-'${fingerprint}'}'
 
             promoted="$(eval echo $newline)"
             production="$(unset CONTAINER_TAG; eval echo $newline)"
@@ -285,10 +297,11 @@ function deploy.createVolumeFolders()
         [ "${dir:0:2}" = './' ] && dir="${dir:2}"                        # remove './' prefix
         # initialize dir when needed. check if there is a coresponding CONFIG file, and strip filename when file exists
         [ -f "${CONFIG_DIR}/$dir" ] && dir="$(dirname "$dir")"
-        if [ ! -d "$dir" ]; then
-            mkdir -p "$dir" ||:
-            sudo chown "$EUID" "$dir"
-            [ "$dir" = "${service_name}/log" ] && chmod 777 "$dir"
+
+        if [ ! -d "${WORKSPACE_DIR}/$dir" ]; then
+            mkdir -p "${WORKSPACE_DIR}/$dir" ||:
+            sudo chown "$EUID" "${WORKSPACE_DIR}/$dir"
+            [ "$dir" = "${service_name}/log" ] && chmod 777 "${WORKSPACE_DIR}/$dir"
         fi
 
         # ensure log symlinks are setup
@@ -300,6 +313,18 @@ function deploy.createVolumeFolders()
         fi
     done
     return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function deploy.docker_compose()
+{
+    local -i status
+    (
+        [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && export CONTAINER_TAG="${OPTS['container_tag']}"
+        docker-compose --file "$WORKSPACE_YAML" "$@"
+    ) && status=$? || status=$?
+
+    return $status
 }
 
 #----------------------------------------------------------------------------------------------
@@ -317,7 +342,7 @@ function deploy.down()
 
     term.log 'INFO: bringing down containers to allow "workspace" to be refreshed\n' 'lt_magenta'
     term.log '$docker-compose down\n' 'grey'
-    docker-compose --file "$WORKSPACE_YAML" down ||:
+    deploy.docker_compose down ||:
 
     return 0
 }
@@ -428,48 +453,42 @@ function deploy.initialize()
 #----------------------------------------------------------------------------------------------
 function deploy.main()
 {
-    local -A opts
-    eval "opts=( ${1:?} )"
-    readonly opts
+    eval "OPTS=( ${1:?} )"
+    readonly OPTS
     shift
     local -ra args=( "$@" )
 
-    local tag="${CONTAINER_TAG:-${opts['tag']:-}}"
-    if [ -z "${tag:-}" ]; then
-        local default
-        [ "${opts['latest']:-}" == 'HEAD' ] && default='latest'
-        tag="$(deploy.containerTag "$default")"
-    fi
-    deploy.__initGlobals "${opts['base']}" "$tag" "${opts['latest']:-}"
+    deploy.__initGlobals "${OPTS['base']}" "${OPTS['latest']:-}"
 
-    [ -z "${opts['clean']:-}" ] || deploy.clean
+
+    [ -z "${OPTS['clean']:-}" ] || deploy.clean
     mkdir -p "$WORKSPACE_DIR" ||:
 
 
     # temporarily reduce DEBUG_TRACE to prevent 'git' tracing
     (( DEBUG_TRACE-- )) ||:
-    versions.data "$VERSIONS_INFO" "${CONTAINER_TAG:-}"
+    versions.data "$VERSIONS_INFO" "${OPTS['container_tag']:-}"
     versions.get "$CONTAINER_OS" 'export'
     (( DEBUG_TRACE++ )) ||:
 
-    if [ "${opts['init']:-}" ]; then
+    if [ "${OPTS['init']:-}" ]; then
         #  initialize devops_container_environment
         term.log '$deploy.initialize 2>&1 | tee setup.log\n' 'grey'
         deploy.initialize 2>&1 | tee "${WORKSPACE_DIR}/setup.log"
         exit 0
     fi
 
-    if [ "${opts['down']:-}" ] && [ -f "$WORKSPACE_YAML" ]; then
+    if [ "${OPTS['down']:-}" ] && [ -f "$WORKSPACE_YAML" ]; then
         # stop any running containers
         term.log '\nINFO: bringing down containers\n' 'white'
         term.log 'docker-compose --file '"$WORKSPACE_YAML"' down\n' 'grey'
-        docker-compose --file "$WORKSPACE_YAML" down ||:
+        deploy.docker_compose down ||:
         exit 0
     fi
 
     #  restart devops_container_environment  (performs configuration if needed)
     term.log '$deploy.restart 2>&1 | tee restart.log\n' 'grey'
-    deploy.restart "${opts['latest']:-}" 2>&1 | tee "${WORKSPACE_DIR}/restart.log"
+    deploy.restart "${OPTS['latest']:-}" 2>&1 | tee "${WORKSPACE_DIR}/restart.log"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -551,18 +570,16 @@ function deploy.pushImages()
 #----------------------------------------------------------------------------------------------
 function deploy.refreshContainers()
 {
-    local -r dc_yaml=${1:?}
-
     # make sure we start the correct versions
-    if [ "$(deploy.containerTag)"  = 'dev' ]; then
+    if [ "${OPTS['dev']:-}" ]; then
         return 0
-    elif [ "${CONTAINER_TAG:-}" = 'latest' ]; then
+    elif [ "${OPTS['container_tag']:-}" = 'latest' ]; then
         term.log '\nINFO: updating containers to latest versions\n' 'white'
     else
         term.log '\n'"INFO: using container fingerprints defined in docker-compose.yml"'\n' 'white'
     fi
-    term.log 'docker-compose --file '"$dc_yaml"' pull\n' 'grey'
-    docker-compose --file "$dc_yaml" pull || return 1
+    term.log 'docker-compose --file '"$WORKSPACE_YAML"' pull\n' 'grey'
+    deploy.docker_compose pull || return 1
 }
 
 #----------------------------------------------------------------------------------------------
@@ -593,7 +610,7 @@ function deploy.restart()
 {
     local latest=${1:-}
 
-    echo "CONTAINER_TAG: ${CONTAINER_TAG:-<using default>}" >&2
+    echo "CONTAINER_TAG: ${OPTS['container_tag']:-<using default>}" >&2
 
     # initialize workspace if required 'docker-compose.yml' is missing
     mkdir -p "$WORKSPACE_DIR" ||:
@@ -603,7 +620,7 @@ function deploy.restart()
     deploy.removeCBFlogs
 
     # restart our environment
-    if ! deploy.restartContainers "$WORKSPACE_YAML" "$latest"; then
+    if ! deploy.restartContainers "$latest"; then
         term.log 'Failed to succussfully deploy container services.\n' 'white'
         exit 0
     fi
@@ -617,8 +634,11 @@ function deploy.restart()
     docker.showProcessReport
     echo
 
-    if [ "${INITIALIZATION:-}" ]; then
-        term.log "Initializing complete. If this setup includes a web server, please open the following URL in your browser: http://$HOST_IP"'\n' 'white'
+    # show help at end of deploy
+    [ "${INITIALIZE_COMPLETE:-}" ] && term.log 'Initializing complete.\n' 'white'
+    if [ -e "${CONFIG_DIR}/completionMsg" ]; then
+        local msg="$(< ${CONFIG_DIR}/completionMsg)"
+        term.log "$(eval "echo $msg")"'\n' 'white'
     fi
     exit 0
 }
@@ -626,26 +646,25 @@ function deploy.restart()
 #----------------------------------------------------------------------------------------------
 function deploy.restartContainers()
 {
-    local -r dc_yaml=${1:?}
-    local -r latest=${2:-}
+    local -r latest=${1:-}
     local -i status
 
     # stop any running containers
     term.log '\nINFO: bringing down containers\n' 'white'
-    term.log 'docker-compose --file '"$dc_yaml"' down\n' 'grey'
-    docker-compose --file "$dc_yaml" down ||:
+    term.log 'docker-compose --file '"$WORKSPACE_YAML"' down\n' 'grey'
+    deploy.docker_compose down ||:
 
     set -o verbose
     sudo find -L "$LOG_DIR" -type f ! -name '.*' -delete
     set +o verbose
 
-    deploy.refreshContainers "$dc_yaml" && status=$? || status=$?
+    deploy.refreshContainers && status=$? || status=$?
     [ $status -eq 0 ] || return $status
 
     term.log '\nINFO: bringing up containers\n' 'white'
-    term.log 'docker-compose --file '"$dc_yaml"' up --detach\n' 'grey'
+    term.log 'docker-compose --file '"$WORKSPACE_YAML"' up --detach\n' 'grey'
     # docker-compose v1.17.0 does not like '--detach'!
-    docker-compose --file "$dc_yaml" up -d  && status=$? || status=$?
+    deploy.docker_compose up -d  && status=$? || status=$?
     [ $status -eq 0 ] || return $status
 
     # fixup docker-compose.yml to reflect the image versions in use
@@ -668,8 +687,8 @@ function deploy.reTagImages()
         image="$(eval echo $image)"
         if [ $(docker images | grep -cs "$image") -gt 0 ]; then
             retaggedImage="${image%=*}"
-            term.log "renaming $image to ${retaggedImage}:$CONTAINER_TAG"'\n' 'warn'
-            docker tag "$image" "${retaggedImage}:$CONTAINER_TAG"
+            term.log "renaming $image to ${retaggedImage}:${OPTS['container_tag']}"'\n' 'warn'
+            docker tag "$image" "${retaggedImage}:${OPTS['container_tag']}"
         else
             term.log "no images matching $image"'\n' 'warn'
         fi
@@ -684,7 +703,7 @@ function deploy.showInitializationBanner()
     term.log "*  initializing DevOps Container Environment on $(environ.ipAddress)"'\n'         'white'
     term.log '*                                                                            *\n' 'white'
     term.log '******************************************************************************\n' 'white'
-    export INITIALIZATION='true'
+    export INITIALIZE_COMPLETE='true'
 }
 
 #----------------------------------------------------------------------------------------------
@@ -702,7 +721,7 @@ function deploy.toProduction()
     #  update deploy docker-compose
 
     #  update main docker-compose.yml if this is for promotion
-    if [ "${CONTAINER_TAG:-}" != 'latest' ]; then
+    if [ "${OPTS['container_tag']:-}" != 'latest' ]; then
         deploy.reTagImages "$dc_yaml"
         # Updating reference docker-compose.yml
         deploy.updateDockerCompose 'production'
@@ -929,16 +948,22 @@ function deploy.workspace()
 #----------------------------------------------------------------------------------------------
 
 declare -i status
-declare -a args
-declare fn=deploy.main
-declare loader="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/appenv.bashlib"
+
+declare -A OPTS
+declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
+declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+declare -i IS_DEBUG=${DEBUG:-0}
+
+
+declare -r loader="$PROGRAM_DIR/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries'
     exit 1
 fi
 
 source "$loader"
-appenv.loader "$fn"
+appenv.loader 'deploy.main'
 
-args=( $( deploy.cmdLineArgs "$PWD" "$@" ) ) && status=$? || status=$?
-[ $status -eq 0 ] && "$fn" "${args[@]}"
+declare -a args=( $( deploy.cmdLineArgs "$PWD" "$@" ) ) && status=$? || status=$?
+[ $status -eq 0 ] && deploy.main "${args[@]}" && status=$? || status=$? 
+exit $status 
