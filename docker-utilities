@@ -20,8 +20,8 @@ Usage:
               | report [[ --catalog ] | [ --summary ] | [ --tags [<repoName>] ] | [ --tag-summary [<repoName>] ] | [ --format <text|json> ] [ --output <fileName> ]]
               | retagImages < newTag> [ <docker-compose.yml> ]
               | retagLatest [ <srcTag> [<newTag>] ]
-              | updateImage <imageName> <imageName> <imageName>
               | show [ --images ] | [ --networks ] | [ --processes ] | [ --services ]
+              | updateImage <imageName> <imageName> <imageName>
 
     Common options:
         -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
@@ -62,6 +62,7 @@ Usage:
     all registry references '$(registry.SERVER)' are automatically stripped from images and/or repos
 
 EOF
+    return 1
 }
 
 #----------------------------------------------------------------------------------------------
@@ -243,141 +244,138 @@ EOF
 #----------------------------------------------------------------------------------------------
 function docker-utilities.cmdLineArgs()
 {
-    local cmd=${1:-}
-    shift
-
+    local argsCondition longOpts options shortOpts
+    
     local -A opts=(['cmd']='docker-utilities.usage')
-    local longOpts=''
-    local shortOpts=''
-    local argsCondition
+    while [ "${1:-}" ]; do
+        case "${1,,}" in
+            help|-h|--help)
+                echo "['cmd']='docker-utilities.usage'"
+                return 0;;
 
-    case "${cmd,,}" in
-        help|-h|--help)
-            echo "['cmd']='docker-utilities.usage'"
-            return 0;;
+            -u|--user)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['user']="$2"
+                shift 2;;
 
-        -u|--user)
-            [[ $# -eq 0 || $1 = -* ]] && trap.die 'invalid arguments!'
-            opts['user']="$1"
-            shift;;
+            -c|--credentials)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['credentials']="$2"
+                shift 2;;
 
-        -c|--credentials)
-            [[ $# -eq 0 || $1 = -* ]] && trap.die 'invalid arguments!'
-            opts['credentials']="$1"
-            shift;;
+            clean)
+                opts['cmd']='docker-utilities.clean'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="clean docker environment by removing old images and stopped containers"
+                longOpts=''
+                shortOpts=''
+                argsCondition='$# -eq 0'
+                shift;;
 
-        clean)
-            opts['cmd']='docker-utilities.clean'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="clean docker environment by removing old images and stopped containers"
-            longOpts=''
-            shortOpts=''
-            argsCondition='$# -eq 0'
-            ;;
+            delete)
+                opts['action']='registry.deleteImage'
+                opts['cmd']='docker-utilities.catalogIterator'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="delete images in $(registry.SERVER) by specifying regex"
+                opts['oper']='docker-utilities.markImageForDeletion'
+                longOpts='no_confirm_delete,end:,keepTags,max:,quiet,start:'
+                shortOpts='e:km:qs:y'
+                argsCondition='$# -ge 0'
+                shift;;
 
-        delete)
-            opts['action']='registry.deleteImage'
-            opts['cmd']='docker-utilities.catalogIterator'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="delete images in $(registry.SERVER) by specifying regex"
-            opts['oper']='docker-utilities.markImageForDeletion'
-            longOpts='no_confirm_delete,end:,keepTags,max:,quiet,start:'
-            shortOpts='e:km:qs:y'
-            argsCondition='$# -ge 0'
-            ;;
+            deletetag)
+                opts['action']='docker-utilities.deleteTagInSpecificRepo'
+                opts['cmd']='docker-utilities.catalogIterator'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="delete specific tag from $(registry.SERVER)"
+                opts['oper']='docker-utilities.deleteTag'
+                longOpts='no_confirm_delete,quiet'
+                shortOpts='aqy'
+                argsCondition='$# -eq 1'
+                shift;;
 
-        deletetag)
-            opts['action']='docker-utilities.deleteTagInSpecificRepo'
-            opts['cmd']='docker-utilities.catalogIterator'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="delete specific tag from $(registry.SERVER)"
-            opts['oper']='docker-utilities.deleteTag'
-            longOpts='quiet'
-            shortOpts='aq'
-            argsCondition='$# -eq 1'
-            ;;
+            getimage|getremoteimage)
+                opts['cmd']='docker-utilities.getImage'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="Get one or more images from some remote, and push to $(registry.SERVER)thirdparty"
+                longOpts='quiet'
+                shortOpts='q'
+                argsCondition='$# -eq 1'
+                shift;;
 
-        getimage|getremoteimage)
-            opts['cmd']='docker-utilities.getImage'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="Get one or more images from some remote, and push to $(registry.SERVER)thirdparty"
-            longOpts='quiet'
-            shortOpts='q'
-            argsCondition='$# -eq 1'
-            ;;
+            pushimage)
+                opts['cmd']='docker-utilities.pushImage'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="push images to $(registry.SERVER)"
+                longOpts='fingerprint,quiet'
+                shortOpts='fq'
+                argsCondition='$# -eq 1'
+                shift;;
 
-        pushimage)
-            opts['cmd']='docker-utilities.pushImage'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="push images to $(registry.SERVER)"
-            longOpts='fingerprint,quiet'
-            shortOpts='fq'
-            argsCondition='$# -eq 1'
-            ;;
+            rename)
+                opts['cmd']='docker-utilities.renameImage'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="rename local images and push them to $(registry.SERVER)"
+                longOpts='quiet'
+                shortOpts='q'
+                argsCondition='$# -eq 2'
+                shift;;
 
-        rename)
-            opts['cmd']='docker-utilities.renameImage'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="rename local images and push them to $(registry.SERVER)"
-            longOpts='quiet'
-            shortOpts='q'
-            argsCondition='$# -eq 2'
-            ;;
+            report)
+                opts['cmd']='docker-utilities.report'
+                opts['message']="report remote images in $(registry.SERVER) "
+                longOpts='catalog,format:,output:,quiet,summary,tag-summary,tags,keep'
+                shortOpts='c:o:qstk'
+                argsCondition='$# -ge 0'
+                shift;;
 
-        report)
-            opts['cmd']='docker-utilities.report'
-            opts['message']="report remote images in $(registry.SERVER) "
-            longOpts='catalog,format:,output:,quiet,summary,tag-summary,tags,keep'
-            shortOpts='c:o:qstk'
-            argsCondition='$# -ge 0'
-            ;;
+            retagimages)
+                opts['cmd']='docker-utilities.retagImages'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="retag images defined in docker-compose.yml "
+                longOpts=''
+                shortOpts=''
+                argsCondition='$# -eq 2'
+                shift;;
 
-        retagimages)
-            opts['cmd']='docker-utilities.retagImages'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="retag images defined in docker-compose.yml "
-            longOpts=''
-            shortOpts=''
-            argsCondition='$# -eq 2'
-            ;;
+            retaglatest)
+                opts['cmd']='docker-utilities.retagLatest'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="retag all 'dev' tagged imagges to 'latest' and push to $(registry.SERVER)"
+                longOpts=''
+                shortOpts=''
+                argsCondition='$# -eq 1 || $# -eq 2'
+                shift;;
 
-        retaglatest)
-            opts['cmd']='docker-utilities.retagLatest'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="retag all 'dev' tagged imagges to 'latest' and push to $(registry.SERVER)"
-            longOpts=''
-            shortOpts=''
-            argsCondition='$# -eq 1 || $# -eq 2'
-            ;;
+            show)
+                opts['cmd']='docker-utilities.show'
+                longOpts='images,networks,processes,services'
+                shortOpts='inps'
+                argsCondition='$# -ge 0'
+                shift;;
 
-        show)
-            opts['cmd']='docker-utilities.show'
-            longOpts='images,networks,processes,services'
-            shortOpts='inps'
-            argsCondition='$# -ge 0'
-            ;;
+            updateimage|updateremoteimage)
+                opts['cmd']='docker-utilities.updateImage'
+                opts['isrunning']='docker.isRunning'
+                opts['message']="Get one or more images from some remote, push to $(registry.SERVER)thirdparty, and update GIT repo"
+                longOpts='quiet'
+                shortOpts='q'
+                argsCondition='$# -eq 1'
+                shift;;
 
-        updateimage|updateremoteimage)
-            opts['cmd']='docker-utilities.updateImage'
-            opts['isrunning']='docker.isRunning'
-            opts['message']="Get one or more images from some remote, push to $(registry.SERVER)thirdparty, and update GIT repo"
-            longOpts='quiet'
-            shortOpts='q'
-            argsCondition='$# -eq 1'
-            ;;
-
-        *)
-           trap.die "invalid command: $cmd" ;;
-    esac
+            *)
+                break;;
+        esac
+    done
 
 
     # Parse command-line options
-    longOpts='help,Help,HELP,user:,credentials:,'"$longOpts"
+    longOpts='help,Help,HELP,user:,credentials:,verbose,'"$longOpts"
     shortOpts='hHc:u:'"$shortOpts"
-    local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || docker-utilities.usage '' $?
+    options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || docker-utilities.usage '' $?
     eval set -- "$options"
 
-    while true; do    
+    while [ "${1:-}" ]; do
         case "${1,,}" in
             -h|--h|-help|--help)
                 argsCondition='true'
@@ -556,13 +554,15 @@ function docker-utilities.cmdLineArgs()
 
         esac
     done
+opts['do_delete']=1
 
     if [ ${IS_DEBUG:-0} -gt 0 ]; then
         for i in "${!opts[@]}"; do
            printf '%s: %s\n' $i "${opts[$i]}" >&2
         done
+        echo 'args:' >&2
         for i in "$@"; do
-           printf ' %s\n' "$i" >&2
+           printf '   %s\n' "$i" >&2
         done
     fi
 
@@ -606,9 +606,9 @@ function docker-utilities.catalogIterator()
     [ "${#requests[*]}" -gt 0 ] || requests=( '.+' )
 
 
+    # find the digests coresponding to the images:tags specified
     catalog="$(docker-utilities.filterCatalog "$@")" # ignore errors
     echo >&2
-
     for name in "${requests[@]}"; do
         if [[ "$name" = *@sha256:* ]]; then
            repo="${name%@*}"
@@ -634,19 +634,18 @@ function docker-utilities.catalogIterator()
     [ $content -eq 0 ] && trap.die 'No content specified'
 
 
+
+    # let user see what is going to be done, then ask for confirmation
     term.elog '\nAbout to delete the following '${#IMAGES_TO_DELETE[*]}' images:      <repo_name>@<digest> : <tags>\n'
     for image in "${!IMAGES_TO_DELETE[@]}"; do
         printf '    %s : %s\n' "$image" "${IMAGES_TO_DELETE[$image]}" | sort >&2
     done
     echo >&2
 
-
     if [ "${OPTS['do_delete']:-0}" -eq 0 ]; then
         local prompt='[Yes/No/All/Quit]'
         [ "${#IMAGES_TO_DELETE[*]}" -eq 1 ] && prompt='[Yes/No]'
         for image in "${!IMAGES_TO_DELETE[@]}"; do
-            repo="${image%@*}"
-            digest="${image##*@}"
 
             echo -en "Delete $image $prompt ? " >&2
             while true; do
@@ -670,6 +669,22 @@ function docker-utilities.catalogIterator()
         return 0
     fi
 
+
+echo '-----------------------------------------------'
+echo "image to delete:  (image:tags)"
+for image in "${!IMAGES_TO_DELETE[@]}"; do
+    printf '    %s : %s\n' "$image" "${IMAGES_TO_DELETE[$image]}"
+done
+echo
+echo "tags to delete:  (repo:tag)"
+for tag in "${!TAGS_TO_DELETE[@]}"; do
+    printf '    %s : %s\n' "$tag" "${TAGS_TO_DELETE[$tag]}"
+done
+echo '-----------------------------------------------'
+echo
+
+#set -x
+    # iterate through the content, and perform required action
     for image in "${!IMAGES_TO_DELETE[@]}"; do
         repo="${image%@*}"
 	digest="${image##*@}"
@@ -800,8 +815,7 @@ function docker-utilities.deleteTagInSpecificRepo()
 
     # find list of tags that we need to keep
     docker-utilities.digests 'json' "$repo" 'notimes'
-    tags=( $(jq -r '.[].tags|join("\n")' <<< "$json"  | grep -v "$tag") )
-
+    tags=( $(jq -r '.[]|select(.digest == "'$digest'").tags[]' <<< "$json" | grep -v "$tag") )
 
     if [ "${#tags[*]}" -gt 0 ]; then
         # pull a copy of image so we can restore other tags
@@ -809,30 +823,31 @@ function docker-utilities.deleteTagInSpecificRepo()
         local -r localImages=$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$image")
         if [ -z "$localImages" ]; then
             pulledImageExists=1
-            docker-utilities.run docker pull "$image"
+            echo "docker-utilities.run docker pull $image"
         fi
     fi
 
-    # remove image from repo
-    registry.deleteImage "$repo" "$digest"
 
+    # remove image from repo
+    echo "registry.deleteImage $repo $digest"
 
 
     if [ "${#tags[*]}" -gt 0 ]; then
 
-        echo '    restoring tags: '"${tags[*]}" >&2
+        echo '    restoring tags:' >&2
+        printf '        %s\n' "${tags[@]}" >&2
         echo  >&2
 
         # push image back using remaining tags
         for tag in "${tags[@]}"; do
             echo "pushing $(registry.SERVER)${repo}:$tag" >&2
-            docker-utilities.run docker tag "$image" "$(registry.SERVER)${repo}:$tag"
-            docker-utilities.run docker push "$(registry.SERVER)${repo}:$tag"
-            docker-utilities.run docker rmi "$(registry.SERVER)${repo}:$tag"
+            echo "docker-utilities.run docker tag $image $(registry.SERVER)${repo}:$tag"
+            echo "docker-utilities.run docker push $(registry.SERVER)${repo}:$tag"
+            echo "docker-utilities.run docker rmi $(registry.SERVER)${repo}:$tag"
         done
 
         # remove local copy of image if it wasn't originaly local
-        [ "$pulledImageExists" -ne 0 ] || docker-utilities.run docker rmi "$image"
+        [ "$pulledImageExists" -ne 0 ] || echo "docker-utilities.run docker rmi $image"
     fi
     return 0
 }
@@ -846,7 +861,7 @@ function docker-utilities.deleteTag()
     local json tags
 
     docker-utilities.digests 'json' "$repo" 'notimes'
-    json="$( jq -c '.[]|select(.tags|any(test("'$tag'")))' <<< "$json")"
+    json="$( jq -c '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")"
 
     tags=$(jq -r '.tags|join(",")' <<< "$json")
     if [ "$tags" ]; then
@@ -864,7 +879,7 @@ function docker-utilities.digests()
     local -r notimes=${3:-}
 
     if [ -z "${REPO_DIGESTS[$repo]:-}" ]; then
-        [ $"${OPTS['quiet']:-0}" -eq 0 ] && term.elog "retrieving digests for $repo"'\n' 'grey'
+        [ "${OPTS['quiet']:-0}" -eq 0 ] && term.elog "retrieving digests for $repo"'\n' 'grey'
         REPO_DIGESTS[$repo]="[$(registry.digests "$repo" $notimes)]"
     fi
     read -r "$var" <<< "${REPO_DIGESTS[$repo]}"
@@ -898,16 +913,16 @@ function docker-utilities.getImage()
 
 
     if [ -z "$(docker image ls -q $image)" ]; then
-        docker pull "$image" || status=$?
+        docker-utilities.run docker pull "$image" || status=$?
         [ $status -ne 0 ] && return $status
     fi
 
-    docker tag "$image" "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
-    [ $status -eq 0 ] && docker push "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
+    docker-utilities.run docker tag "$image" "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
+    [ $status -eq 0 ] && docker-utilities.run docker push "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
     [ $status -ne 0 ] && return $status
 
-    docker rmi "$image" || status=$?
-    docker rmi "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
+    docker-utilities.run docker rmi "$image" || status=$?
+    docker-utilities.run docker rmi "$(registry.SERVER)thirdparty/${image##*/}" || status=$?
     [ $status -ne 0 ] && term.elog 'WARNING:  Failed to cleanup temporary images' 'warn'
 
     return 0
@@ -919,6 +934,7 @@ function docker-utilities.main()
     eval "OPTS=( $1 )"
     readonly OPTS
     shift
+    [ "${OPTS['cmd']:-}" ] || trap.die 'invalid arguements' 
  
  
     if [ "${OPTS['isrunning']:-}" ]; then
@@ -942,7 +958,6 @@ function docker-utilities.main()
     fi
 
     local status=0
-    DEBUG=1
     "${OPTS['cmd']}" ${OPTS['oper']:-} "$@" && status=$? || status=$?
     return $status
 }
@@ -1181,8 +1196,8 @@ function docker-utilities.retagImages()
         for image in "${images[@]}"; do
             image=$(eval echo $image)
             target="${image%:*}:$to"
-            docker tag "$image" "$target"
-            docker rmi "$image" || :
+            docker-utilities.run docker tag "$image" "$target"
+            docker-utilities.run docker rmi "$image" || :
         done
     fi
 }
@@ -1198,17 +1213,17 @@ function docker-utilities.retagLatest()
     while read -r image; do
         target="${image%:*}:$to"
         images+=( "$target" )
-        docker tag "$image" "$target"
+        docker-utilities.run docker tag "$image" "$target"
     done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep "$from")
 
     docker.pushRetained '1' "${images[@]}"
-    docker rmi "${images[@]}"
+    docker-utilities.run docker rmi "${images[@]}"
 }
 
 #----------------------------------------------------------------------------------------------
 function docker-utilities.run()
 {
-    [ $DEBUG -ne 0 ] && (echo -e "${grey}$(printf '%s ' "$@")$reset" >&2)
+    [ "${OPTS['quiet']:-0}" -eq 0 ] && (echo -e "${grey}$(printf '%s ' "$@")$reset" >&2)
     eval $@ > /dev/null
 }
 
@@ -1324,36 +1339,39 @@ function docker-utilities.usage()
     local -r context="${1:-help}"
     local -ir exit_status="${2:-127}"
 
-    case "$context" in
+    case "${context,,}" in
         clean)
             docker-utilities.helpFor_clean
             ;;
         delete)
             docker-utilities.helpFor_delete
             ;;
-        deleteTagInSpecificRepo)
+        deletetaginspecificrepo)
             docker-utilities.helpFor_deleteTagInSpecificRepo
             ;;
-        getImage)
+        getimage|getremoteimage)
             docker-utilities.helpFor_getImage
             ;;
-        pushImage)
+        pushimage)
             docker-utilities.helpFor_pushImage
             ;;
-        renameImage)
+        renameimage)
             docker-utilities.helpFor_rename
             ;;
         report)
             docker-utilities.helpFor_report
             ;;
-        retagLatest)
+        retaglatest)
             docker-utilities.helpFor_retagLatest
             ;;
-        retagImages)
+        retagimages)
             docker-utilities.helpFor_retagImages
             ;;
         show)
             docker-utilities.helpFor_show
+            ;;
+        updateImage)
+            docker-utilities.helpFor_pushImage
             ;;
         *)
             docker-utilities.helpFor_general
@@ -1394,8 +1412,9 @@ fi
 source "$loader"
 appenv.loader 'docker-utilities.main'
 
+
 declare -i status
 declare -a args=( $( docker-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
-[ $status -eq 0 ] && docker-utilities.main "${args[@]}" && status=$? || status=$?
+[ $status -eq 0 ] && docker-utilities.main "${args[@]:-}" && status=$? || status=$?
 printf '\nElapsed time: %s\n' $(timer.fmtElapsed $(( $(date '+%s') - start )) ) >&2
 exit $status
