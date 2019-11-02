@@ -246,21 +246,27 @@ function docker-utilities.cmdLineArgs()
 {
     local argsCondition longOpts options shortOpts
     
-    local -A opts=(['cmd']='docker-utilities.usage')
+    local -A opts=()
+    [ ${DEBUG:-0} -ne 0 ] && opts['debug']=$DEBUG
+
     while [ "${1:-}" ]; do
         case "${1,,}" in
             help|-h|--help)
                 echo "['cmd']='docker-utilities.usage'"
                 return 0;;
 
-            -u|--user)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
-                opts['user']="$2"
-                shift 2;;
-
             -c|--credentials)
                 [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
                 opts['credentials']="$2"
+                shift 2;;
+
+            --debug)
+                opts['debug']=1
+                shift;;
+
+            -u|--user)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['user']="$2"
                 shift 2;;
 
             clean)
@@ -273,7 +279,7 @@ function docker-utilities.cmdLineArgs()
                 shift;;
 
             delete)
-                opts['action']='registry.deleteImage'
+                opts['action']='docker-utilities.deleteImage'
                 opts['cmd']='docker-utilities.catalogIterator'
                 opts['isrunning']='docker.isRunning'
                 opts['message']="delete images in $(registry.SERVER) by specifying regex"
@@ -369,11 +375,18 @@ function docker-utilities.cmdLineArgs()
     done
 
 
+    [ -z "${opts['cmd']:-}" ] && docker-utilities.helpFor_general
+
     # Parse command-line options
-    longOpts='help,Help,HELP,user:,credentials:,verbose,'"$longOpts"
-    shortOpts='hHc:u:'"$shortOpts"
+    if [ -z "${longOpts:-}" ]; then
+        longOpts='help,Help,HELP,user:,credentials:,verbose,debug'
+    else
+        longOpts='help,Help,HELP,user:,credentials:,verbose,debug,'"${longOpts:-}"
+    fi
+    shortOpts='hHc:u:d'"${shortOpts:-}"
     options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || docker-utilities.usage '' $?
     eval set -- "$options"
+
 
     while [ "${1:-}" ]; do
         case "${1,,}" in
@@ -411,6 +424,10 @@ function docker-utilities.cmdLineArgs()
                 argsCondition='$# -eq 0'
                 opts['oper']='catalog'
                 opts['message']="generate a report of the registry catalog from $(registry.SERVER)"
+                shift;;
+
+            --debug)
+                opts['debug']=1
                 shift;;
 
             -e|-end|--end)
@@ -554,19 +571,25 @@ function docker-utilities.cmdLineArgs()
 
         esac
     done
-opts['do_delete']=1
 
-    if [ ${IS_DEBUG:-0} -gt 0 ]; then
-        for i in "${!opts[@]}"; do
-           printf '%s: %s\n' $i "${opts[$i]}" >&2
-        done
-        echo 'args:' >&2
-        for i in "$@"; do
-           printf '   %s\n' "$i" >&2
-        done
+
+    # show args
+    if [ ${opts['debug']:-0} -gt 0 ]; then
+        {
+            for i in "${!opts[@]}"; do
+               printf '%s: %s\n' $i "${opts[$i]}"
+            done
+            echo 'args:'
+            for i in "$@"; do
+               printf '   %s\n' "$i"
+            done
+            echo
+        } >&2
     fi
 
-    $(eval "[[ $argsCondition ]]") || trap.die 'invalid arguments!'
+    if [ "${argsCondition:-}" ]; then
+        $(eval "[[ $argsCondition ]]") || trap.die 'invalid arguments!'
+    fi
 
     appenv.results $(docker-utilities.removeRegistryReference "$@")
 
@@ -578,12 +601,13 @@ opts['do_delete']=1
 function docker-utilities.addImageToList()
 {
     local -r repo=${1:?}
-    local -r tags=${2:?}
+    shift
+    local -ra tags=( $@ )
 
     if [ -z "${IMAGES_TO_DELETE[$repo]:-}" ]; then
-        IMAGES_TO_DELETE[$repo]="$tags"
+        IMAGES_TO_DELETE[$repo]="${tags[*]}"
     else
-        IMAGES_TO_DELETE[$repo]+=( "$tags" )
+        IMAGES_TO_DELETE[$repo]+=" ${tags[*]}"
     fi
 }
 
@@ -598,8 +622,7 @@ function docker-utilities.catalogIterator()
 
     local -i status=0
     local -i content=0
-    local catalog id name repo tag
-    local image name digest repo yesno
+    local catalog digest id ref repo request tag yesno
     local -a tags repos
 
     local -a requests=( "$@" )
@@ -609,17 +632,17 @@ function docker-utilities.catalogIterator()
     # find the digests coresponding to the images:tags specified
     catalog="$(docker-utilities.filterCatalog "$@")" # ignore errors
     echo >&2
-    for name in "${requests[@]}"; do
-        if [[ "$name" = *@sha256:* ]]; then
-           repo="${name%@*}"
-           tag="${name##*@}"
+    for request in "${requests[@]}"; do
+        if [[ "$request" = *@sha256:* ]]; then
+           repo="${request%@*}"
+           tag="${request##*@}"
 
-        elif [[ "$name" = *:* ]]; then
-            repo="${name%:*}"
-            tag="${name##*:}"
+        elif [[ "$request" = *:* ]]; then
+            repo="${request%:*}"
+            tag="${request##*:}"
 
         else
-            repo="$name"
+            repo="$request"
             tag='^.*$'
         fi
 
@@ -637,17 +660,18 @@ function docker-utilities.catalogIterator()
 
     # let user see what is going to be done, then ask for confirmation
     term.elog '\nAbout to delete the following '${#IMAGES_TO_DELETE[*]}' images:      <repo_name>@<digest> : <tags>\n'
-    for image in "${!IMAGES_TO_DELETE[@]}"; do
-        printf '    %s : %s\n' "$image" "${IMAGES_TO_DELETE[$image]}" | sort >&2
+    for repo in "${!IMAGES_TO_DELETE[@]}"; do
+        mapfile -t tags < <(echo "${IMAGES_TO_DELETE[$repo]}")
+        printf '    %s :%s\n' "$repo" "$(printf ' %s' "${tags[@]}" | sort)" | sort >&2
     done
     echo >&2
 
     if [ "${OPTS['do_delete']:-0}" -eq 0 ]; then
         local prompt='[Yes/No/All/Quit]'
         [ "${#IMAGES_TO_DELETE[*]}" -eq 1 ] && prompt='[Yes/No]'
-        for image in "${!IMAGES_TO_DELETE[@]}"; do
+        for repo in "${!IMAGES_TO_DELETE[@]}"; do
 
-            echo -en "Delete $image $prompt ? " >&2
+            echo -en "Delete $repo $prompt ? " >&2
             while true; do
                 local yesno='n'
                 read yesno
@@ -657,7 +681,7 @@ function docker-utilities.catalogIterator()
                     q)  return 2;;
                     a)  break 2;;
                     y)  break;;
-                    n)  unset IMAGES_TO_DELETE[$image];  break;;
+                    n)  unset IMAGES_TO_DELETE[$repo];  break;;
                 esac
             done
         done
@@ -670,27 +694,25 @@ function docker-utilities.catalogIterator()
     fi
 
 
-echo '-----------------------------------------------'
-echo "image to delete:  (image:tags)"
-for image in "${!IMAGES_TO_DELETE[@]}"; do
-    printf '    %s : %s\n' "$image" "${IMAGES_TO_DELETE[$image]}"
-done
-echo
-echo "tags to delete:  (repo:tag)"
-for tag in "${!TAGS_TO_DELETE[@]}"; do
-    printf '    %s : %s\n' "$tag" "${TAGS_TO_DELETE[$tag]}"
-done
-echo '-----------------------------------------------'
-echo
+    if [ ${OPTS['debug']:-0} -gt 0 ]; then
+        {
+            echo '-----------------------------------------------'
+            echo "image to delete:  (image@digest:tags)"
+            for ref in "${!IMAGES_TO_DELETE[@]}"; do
+                printf '    %s : %s\n' "$ref" "${IMAGES_TO_DELETE[$ref]}"
+            done
+            echo '-----------------------------------------------'
+            echo
+        } >&2
+    fi
 
-#set -x
+
     # iterate through the content, and perform required action
-    for image in "${!IMAGES_TO_DELETE[@]}"; do
-        repo="${image%@*}"
-	digest="${image##*@}"
-        "${OPTS['action']}" "$repo" "$digest" || status=$?
-        [ $status -eq 0 ] || break
-    done
+    for ref in "${!IMAGES_TO_DELETE[@]}"; do
+        mapfile -t tags < <( echo "${IMAGES_TO_DELETE[$ref]:-}" )
+        [ "${#tags[*]}" -gt 0 ] || continue
+        "${OPTS['action']}" "$ref" "${tags[@]}" || return $?
+     done
     return $status
 }
 
@@ -700,6 +722,18 @@ function docker-utilities.clean()
 {
     docker.clean
     docker-utilities.show 'images' "$@"
+}
+
+#----------------------------------------------------------------------------------------------
+function docker-utilities.deleteImage()
+{
+    local -r ref=${1:?}
+
+    local -r repo="${ref%@*}"
+    local -r digest="${ref##*@}"
+
+    # remove image from repo
+    registry.deleteImage "$repo" "$digest"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -803,51 +837,68 @@ function docker-utilities.deleteRangeOfImagesInRepoBySpecifyingStartEndTime()
 # deleting repos : delete a repo by specifying image:*
 function docker-utilities.deleteTagInSpecificRepo()
 {
-    local -r repo=${1:?}
-    local -r digest=${2:?}
+    local -r ref=${1:?}
+    shift
+    local -ra tagsToDelete=( $@ )
 
-    local image json tag
-    local -a tags
+    local -r repo="${ref%@*}"
+    local -r digest="${ref##*@}"
+
+
+    local repo_json
+    docker-utilities.digests 'repo_json' "$repo" 'notimes'
+    [ "${repo_json:-}" ] || return 0
+
+
+    local image tag
     local -i pulledImageExists=0
+    local -a tags
 
-    # get previosuly specified tag
-    tag="${TAGS_TO_DELETE[$repo]}"
-
-    # find list of tags that we need to keep
-    docker-utilities.digests 'json' "$repo" 'notimes'
-    tags=( $(jq -r '.[]|select(.digest == "'$digest'").tags[]' <<< "$json" | grep -v "$tag") )
+    # get tags associated with same digest, but exclude those we want to delete
+    mapfile -t tags < <(jq -r '.[]|select(.digest == "'$digest'").tags[]' <<< "$repo_json" | grep -vF "${tagsToDelete[*]}")
+    if [ ${OPTS['debug']:-0} -gt 0 ]; then
+        {
+            echo $(jq -r '.[]|select(.digest == "'$digest'").tags[]' <<< "$repo_json")
+            echo 'ref:    '"$ref"
+            echo 'repo:   '"$repo"
+            echo 'digest: '"$digest"
+            echo 'tagsToDelete:'
+            printf '    %s\n' "${tagsToDelete[@]}"
+            echo 'tags:'
+            printf '    %s\n' "${tags[@]}"
+            echo
+        } >&2
+    fi
 
     if [ "${#tags[*]}" -gt 0 ]; then
         # pull a copy of image so we can restore other tags
-        image="$(registry.SERVER)${repo}:$tag"
-        local -r localImages=$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$image")
+        image="$(registry.SERVER)${repo}@$digest"
+        local -r localImages=$(docker images --format '{{.Repository}}@{{.Digest}}' --filter "reference=$image")
         if [ -z "$localImages" ]; then
             pulledImageExists=1
-            echo "docker-utilities.run docker pull $image"
+            docker-utilities.run docker pull "$image"
         fi
     fi
 
 
     # remove image from repo
-    echo "registry.deleteImage $repo $digest"
+    registry.deleteImage "$repo" "$digest"
 
 
     if [ "${#tags[*]}" -gt 0 ]; then
 
-        echo '    restoring tags:' >&2
-        printf '        %s\n' "${tags[@]}" >&2
-        echo  >&2
-
+        echo 'restoring tags:' >&2
         # push image back using remaining tags
         for tag in "${tags[@]}"; do
             echo "pushing $(registry.SERVER)${repo}:$tag" >&2
-            echo "docker-utilities.run docker tag $image $(registry.SERVER)${repo}:$tag"
-            echo "docker-utilities.run docker push $(registry.SERVER)${repo}:$tag"
-            echo "docker-utilities.run docker rmi $(registry.SERVER)${repo}:$tag"
+            docker-utilities.run docker tag "$image" "$(registry.SERVER)${repo}:$tag"
+            docker-utilities.run docker push "$(registry.SERVER)${repo}:$tag"
+            docker-utilities.run docker rmi "$(registry.SERVER)${repo}:$tag"
+            echo >&2
         done
 
         # remove local copy of image if it wasn't originaly local
-        [ "$pulledImageExists" -ne 0 ] || echo "docker-utilities.run docker rmi $image"
+        [ "$pulledImageExists" -ne 0 ] || docker-utilities.run docker rmi "$image"
     fi
     return 0
 }
@@ -858,16 +909,28 @@ function docker-utilities.deleteTag()
 {
     local -r repo=${1:?}
     local -r tag=${2:?}
-    local json tags
+    local digest json repo_json x
+    local -a tagsToDelete
+    local -i i
 
-    docker-utilities.digests 'json' "$repo" 'notimes'
-    json="$( jq -c '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")"
+    docker-utilities.digests 'repo_json' "$repo" 'notimes'
+    [ "${repo_json:-}" ] || return 0
 
-    tags=$(jq -r '.tags|join(",")' <<< "$json")
-    if [ "$tags" ]; then
-        docker-utilities.addImageToList "${repo}@$(jq -r '.digest' <<< "$json")" "$tags"
-        TAGS_TO_DELETE[$repo]="$tag"
-    fi
+    for (( i=0; i<$(jq 'length' <<< "$repo_json"); i++ )); do
+        json=$(jq '.['$i']' <<< "$repo_json")
+        digest=$(jq -r '.digest' <<< "$json")
+        [ "${digest:-}" ] || continue
+
+        tagsToDelete=()
+        for x in $(jq -r '.tags[]' <<< "$json"); do
+            [[ $x =~ $tag ]] || continue
+            tagsToDelete+=( $x )
+        done
+        [ "${#tagsToDelete[*]}" -le 0 ] && continue
+
+        docker-utilities.addImageToList "${repo}@$digest" "${tagsToDelete[@]}" || status=1
+    done
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -880,9 +943,11 @@ function docker-utilities.digests()
 
     if [ -z "${REPO_DIGESTS[$repo]:-}" ]; then
         [ "${OPTS['quiet']:-0}" -eq 0 ] && term.elog "retrieving digests for $repo"'\n' 'grey'
-        REPO_DIGESTS[$repo]="[$(registry.digests "$repo" $notimes)]"
+        local digests="[$(registry.digests "$repo" $notimes)]"
+        [ -z "${digests:-}" ] && return 0
+        REPO_DIGESTS[$repo]="$digests"
     fi
-    read -r "$var" <<< "${REPO_DIGESTS[$repo]}"
+    read -r "$var" <<< "${REPO_DIGESTS[$repo]:-}"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -931,6 +996,17 @@ function docker-utilities.getImage()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.main()
 {
+    # define out 'GLOBALS'
+    declare -ir MAX_IMAGES=10
+    declare -ir MAX_END_TIME=4294967295
+    declare -ir MIN_START_TIME=0
+
+    declare -A OPTS=()
+    declare -A IMAGES_TO_DELETE=()
+    declare -A REPO_DIGESTS=()
+
+
+    # extract out options, and handle the common options
     eval "OPTS=( $1 )"
     readonly OPTS
     shift
@@ -951,7 +1027,9 @@ function docker-utilities.main()
     fi
  
 
-    if [ ${IS_DEBUG:-0} -ne 0 ]; then
+
+    # perform what was asked
+    if [ ${OPTS['debug']:-0} -ne 0 ]; then
         echo "cmd:    ${OPTS['cmd']}" >&2
         echo "oper:   ${OPTS['oper']}" >&2
         echo "action: ${OPTS['action']}" >&2
@@ -1072,19 +1150,22 @@ function docker-utilities.report()
                     docker-utilities.reportTextFormat "$report_json" && status=$? || status=$?
 
                     if [ $status -eq 0 ]; then
-                        [ "${OPTS['keep']:-0}" -ne 0 ] && return 0
-                        for report in summary.txt reportDetails.txt reportList.txt; do
-                            report="$(pwd)/$report"
-                            case "${OPTS['output']:-}" in
-                                *.txt)
-                                    cat "$report" > "${OPTS['output']}"
-                                    ;;
-                                *)
-                                    cat "$report"
-                                    ;;
-                            esac
-                            rm "$report"
-                        done
+                        if [ "${OPTS['keep']:-0}" -ne 0 ]; then
+                            mv "$report_json" "$(pwd)/reportCatalog.$(date +%Y%m%d%H%M%S).json"
+                        else
+                            for report in summary.txt reportDetails.txt reportList.txt; do
+                                report="$(pwd)/$report"
+                                case "${OPTS['output']:-}" in
+                                    *.txt)
+                                        cat "$report" > "${OPTS['output']}"
+                                        ;;
+                                    *)
+                                        cat "$report"
+                                        ;;
+                                esac
+                                rm "$report"
+                            done
+                        fi
                     fi
                     [ ! -e "$report_json" ] || rm "$report_json"
                 fi
@@ -1223,7 +1304,7 @@ function docker-utilities.retagLatest()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.run()
 {
-    [ "${OPTS['quiet']:-0}" -eq 0 ] && (echo -e "${grey}$(printf '%s ' "$@")$reset" >&2)
+    [ "${OPTS['quiet']:-0}" -eq 0 ] || term.elog "$(printf '%s ' "$@")"
     eval $@ > /dev/null
 }
 
@@ -1339,44 +1420,23 @@ function docker-utilities.usage()
     local -r context="${1:-help}"
     local -ir exit_status="${2:-127}"
 
-    case "${context,,}" in
-        clean)
-            docker-utilities.helpFor_clean
-            ;;
-        delete)
-            docker-utilities.helpFor_delete
-            ;;
-        deletetaginspecificrepo)
-            docker-utilities.helpFor_deleteTagInSpecificRepo
-            ;;
-        getimage|getremoteimage)
-            docker-utilities.helpFor_getImage
-            ;;
-        pushimage)
-            docker-utilities.helpFor_pushImage
-            ;;
-        renameimage)
-            docker-utilities.helpFor_rename
-            ;;
-        report)
-            docker-utilities.helpFor_report
-            ;;
-        retaglatest)
-            docker-utilities.helpFor_retagLatest
-            ;;
-        retagimages)
-            docker-utilities.helpFor_retagImages
-            ;;
-        show)
-            docker-utilities.helpFor_show
-            ;;
-        updateImage)
-            docker-utilities.helpFor_pushImage
-            ;;
-        *)
-            docker-utilities.helpFor_general
-            ;;
-    esac
+    local -A contextHelp=( ['clean']=docker-utilities.helpFor_clean
+                           ['delete']=docker-utilities.helpFor_delete
+                           ['deletetaginspecificrepo']=docker-utilities.helpFor_deleteTagInSpecificRepo
+                           ['getimage']=docker-utilities.helpFor_getImage
+                           ['getremoteimage']=docker-utilities.helpFor_getImage
+                           ['help']=docker-utilities.helpFor_general
+                           ['pushimage']=docker-utilities.helpFor_pushImage
+                           ['renameimage']=docker-utilities.helpFor_rename
+                           ['report']=docker-utilities.helpFor_report
+                           ['retaglatest']=docker-utilities.helpFor_retagLatest
+                           ['retagimages']=docker-utilities.helpFor_retagImages
+                           ['show']=docker-utilities.helpFor_show
+                           ['updateImage']=docker-utilities.helpFor_pushImage
+                         )
+
+    # show context sensitive help
+    ${contextHelp[${context,,}]:-docker-utilities.helpFor_general}
     exit "$exit_status"
 }
 
@@ -1386,22 +1446,9 @@ function docker-utilities.usage()
 #
 #----------------------------------------------------------------------------------------------
 
-declare start=$(date '+%s')
-declare -r grey='\e[90m'
-declare -r white='\e[97m'
-declare -r reset='\e[0m'
-declare -ir MAX_IMAGES=10
-declare -ir MAX_END_TIME=4294967295
-declare -ir MIN_START_TIME=0
-
-declare -A OPTS
-declare -A IMAGES_TO_DELETE=()
-declare -A REPO_DIGESTS=()
-declare -A TAGS_TO_DELETE=()
-
+declare -r start=$(date '+%s')
 declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-declare -i IS_DEBUG=${DEBUG:-0}
 
 
 declare -r loader="$PROGRAM_DIR/appenv.bashlib"

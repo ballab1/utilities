@@ -7,7 +7,7 @@ function build.usage()
 
     cat >&2 << EOF
 Usage:
-    $progname [ -h | --help ]
+    $PROGNAME [ -h | --help ]
               [ -f | --force ]
               [ -c | --console ]
               [ --logdir <logDir> ]
@@ -17,14 +17,16 @@ Usage:
               [ <repoName> <repoName> <repoName> ]
 
     Common options:
-        -h --help                  Display a basic set of usage instructions
-        -c --console               log build info to conolse : default is to log to logdir and just display summary on console
-        -f --force                 force build : do not check if fingerprint exists locally or in registry
-           --logdir                log directory. If not specified, defalts to
-        -l --logfile <logName>     log build results to <logName>. Defaults to build.YYYYMMDDhhmmss.log
-        -o --os <osName>           specify OS <osName> that will be used. Default all OS types defined
-        -p --push                  always push image to regitry
-           --no-push               never push image to registry
+        -h --help                             display a basic set of usage instructions
+        -c --console                          log build info to console : default is to log to logdir and just display summary on console
+        -f --force                            force build : do not check if fingerprint exists locally or in registry
+           --logdir                           log directory. If not specified, defalts to
+        -l --logfile <logName>                log build results to <logName>. Defaults to build.YYYYMMDDhhmmss.log
+        -o --os <osName>                      specify OS <osName> that will be used. Default all OS types defined
+        -p --push                             always push image to regitry
+           --no-push                          never push image to registry
+           --user <username>                  Defaults to \${USERNAME:-\$USER}
+           --credentials <credentials_file>   File container key/value pairs for user=pwd
 
     build one or more component repos
 
@@ -32,38 +34,35 @@ EOF
     exit "$exit_status"
 }
 
-export PROGRESS_LOG
-
 #----------------------------------------------------------------------------------------------
 function build.all()
 {
-    local -r top="${1:?}"
-    local -r logDir="${2:?}"
-    shift 2
     local -ra userInput=( "$@" )
 
     local -r allStartTime=$(timer.getTimestamp)
-    cd "$top"
-    [ -d "$logDir" ] || mkdir -p "$logDir"
+
+    cd "${OPTS['base']}"
 
 
-    VERSIONS_DIRECTORY="${top}/versions"
+    VERSIONS_DIRECTORY="${OPTS['base']}/versions"
     local -a files=()
     mapfile -t files < <(ls -1 "$VERSIONS_DIRECTORY" | grep -vF '.' ||:)
     [ "${#files[*]}" -eq 0 ] && trap.die "No version information available."
-
 
     local updateTo
     [[ "$(git.branch)" = *dev* ]] && updateTo=latest
     [ "${CONTAINER_TAG:-}" ] && updateTo=latest
 
     local -a OSes
-    mapfile -t OSes < <(sed '/^[[:blank:]]*#/d;s/[[:blank:]]*#.*//' container.os)
-    [ "${CONTAINER_OS:-}" ] && OSes=( $CONTAINER_OS )
+    if [ "${OPTS['os']:-}" ]; then
+        OSes=( ${OPTS['os']} )
+    else
+        mapfile -t OSes < <(sed '/^[[:blank:]]*#/d;s/[[:blank:]]*#.*//' container.os)
+    fi
 
     local cbf_version="${CBF_VERSION:-}"
     if [ -z "${CBF_VERSION:-}" ]; then
-        if [ -d "${top}/container_build_framework" ]; then
+        if [ -d "${OPTS['base']}/container_build_framework" ]; then
             cbf_version="$(build.cbfVersion)" || trap.die "Unable to save CBF to $(custom.storage)."'\n'
         else
             cbf_version='master'
@@ -80,16 +79,14 @@ function build.all()
     echo "kafka_producer: ${KAFKA_PRODUCER:-}"
     echo
 
-
     local -i status=0
     local request_cbf="${CBF_VERSION:-}"
     for containerOS in "${OSes[@]}"; do
         [ ${containerOS:-} ] || continue
         [ -e "$VERSIONS_DIRECTORY/$containerOS" ] || continue
         [ "${request_cbf:-}" ] || CBF_VERSION="$cbf_version"
-
         # run in separate shell to avoid "VERSIONS" conflicting
-        (build.containersForOS "$containerOS" "${userInput[@]:-}") && status=$? || status=$?
+        build.containersForOS "$containerOS" "${userInput[@]:-}" && status=$? || status=$?
         [ "$status" -ne 0 ] && break
     done
 
@@ -112,7 +109,6 @@ function build.all()
                      "$(git.refs)" \
                      'overall build'
 
-    [ -d "$logDir" ] && [ $(ls -1A "$logDir" | wc -l) -gt 0 ] || rmdir "$logDir"
     return $status
 }
 
@@ -151,7 +147,7 @@ function build.canPush()
 {
     local -r revision=${1:?}
 
-    case "${BUILD_PUSH:-0}" in
+    case "${OPTS['push']:-0}" in
         -1) return 1;;
         1)  return 0;;
     esac
@@ -198,40 +194,53 @@ function build.changeImage()
 #---------------------------------------------------------------------------------------------- #----------------------------------------------------------------------------------------------
 function build.cmdLineArgs()
 {
-    local base="${1:?}"
-    shift
-    local usage='build.usage'
-
     # Parse command-line options into above variable
-    local -r progname="$( basename "${BASH_SOURCE[0]}" )"
-    local -r longoptions='help,Help,HELP,console,force,logdir:,logfile:,push,no-push,os:'
-    local -r shortoptions='Hhcfl:po:'
-    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$progname" -- "$@") || "$usage" $?
+    local -r longoptions='help,Help,HELP,user:,credentials:,debug,base:,console,force,logdir:,logfile:,push,no-push,os:'
+    local -r shortoptions='Hhu:dfl:cpo:b:'
+    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$PROGNAME" -- "$@") || build.usage $?
     eval set -- "$options"
 
     local -A opts=()
-    opts['base']="$(readlink -f "$base")"
+    opts['base']="$(pwd)"
     opts['logdir']="${opts['base']}/logs"
     opts['logfile']="logs/build.$(date +"%Y%m%d%H%M%S").log"
     opts['conlog']=0
+    [ ${DEBUG:-0} -ne 0 ] && opts['debug']=$DEBUG
 
-    while true; do
-        case "${1:-}" in
-            -h|--h|--help|-help)  "$usage" 1;;
-            -H|--H|--HELP|-HELP)  "$usage" 1;;
-            --Help|-Help)         "$usage" 1;;
+    while [ "${1:-}" ]; do
+        case "${1,,}" in
+            -h|--h|--help|-help)  build.usage 1;;
+            -d|--d|--debug)       opts['debug']=1; shift;;
+            -u|--u|--user)        opts['user']="$2"; shift 2;;
+                   --credentials) opts['credentials']="$2"; shift 2;;
+            -b|--b|--base)        opts['base']="$2"; shift 2;;
             -c|--c|--console)     opts['console']=1; shift 1;;
+            -f|--f|--force)       opts['force']=1; shift 1;;
                --logdir)          opts['logdir']="$2"; shift 2;;
             -l|--l|--logfile)     opts['logfile']="$2"; shift 2;;
-            -o|--o|--os)          opts['os']="$2"; shift 2;;
-            -f|--f|--force)       opts['force']=1; shift 1;;
             -p|--p|--push)        opts['push']=1; shift 1;;
                --no-push)         opts['push']=-1; shift 1;;
+            -o|--o|--os)          opts['os']="$2"; shift 2;;
             --)                   shift; break;;
         esac
     done
 
-    if [ -z "$(git submodule)" ];then
+
+    # show args
+    if [ ${opts['debug']:-0} -gt 0 ]; then
+        {
+            for i in "${!opts[@]}"; do
+               printf '%s: %s\n' $i "${opts[$i]}"
+            done
+            echo 'args:'
+            for i in "$@"; do
+               printf '   %s\n' "$i"
+            done
+            echo
+        } >&2
+    fi
+
+    if [ -z "$(cd "${opts['base']:-}"; git submodule)" ];then
         term.log 'Invalid directory.' 'error'
         exit 1
     fi
@@ -245,20 +254,13 @@ function build.containersForOS()
     local -r containerOS=${1:-}
     shift
     local -ar requestModules=( "$@" )
-    [ "${containerOS:-}" ] || containerOS="${CONTAINER_OS:-alpine}"
+    [ "${containerOS:-}" ] || containerOS="${OPTS['os']:-alpine}"
 
 
     local osStartTime=$(timer.getTimestamp)
 
-    export CBF_VERSION
-    export CONTAINER_OS="$containerOS"
-    export DEV_TEAM="${DEV_TEAM:-devops/}"
-    export DOCKER_REGISTRY=$(registry.SERVER)
 
-    if [ "${CONSOLE_LOG:-0}" -eq 0 ]; then
-        PROGRESS_LOG="$(readlink -f "$logDir")/progressInfo"
-        touch "$PROGRESS_LOG"
-    fi
+    [ "${OPTS['conlog']:-0}" -eq 0 ] && touch "$PROGRESS_LOG"
 
     local build_time=$(date +%Y%m%d-%H%M%S.%N -u)
     local fingerprint="n/a"
@@ -277,10 +279,12 @@ function build.containersForOS()
     echo "    commitId:       $git_commit"
     echo "    revision:       $origin"
 
+
     # get versions  (do not redefine any that are alresady in ENV)
     local versions="${VERSIONS_DIRECTORY}/$containerOS"
     [ -e "$versions" ] || trap.die "Unrecognized CONTAINER_OS: $containerOS"
-    lib.exportFileVars "$versions"
+    lib.exportFileVars "$versions" 'export' 'true'
+
 
     exec 3>&1  # create special stdout
 
@@ -309,7 +313,7 @@ function build.containersForOS()
     local osDuration="$(timer.fmtElapsed $osElapsed)"
     printf '\n  Time building %s OS: %s\n' "$containerOS" "$osDuration"
 
-    [ "${CONSOLE_LOG:-0}" -eq 0 ] || :> "$PROGRESS_LOG"
+    [ "${OPTS['conlog']:-0}" -eq 0 ] || (:> "$PROGRESS_LOG")
     build.logToKafka "$build_time" \
                      "$fingerprint" \
                      "$git_commit" \
@@ -431,7 +435,7 @@ function build.getImageParent()
 
     local base=$(eval echo $( jq '.build.args.FROM_BASE?' <<< "$config" ))
     if [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$base")" ]; then
-        echo pulling parent image: "$base" >&2
+        echo "pulling parent image: $base" >&2
         [ "$(docker image ls "$base" | awk 'NR != 1')" ] || docker pull "$base" >&2 ||: return 0
     fi
     if [ "${unique:-}" ]; then
@@ -446,7 +450,7 @@ function build.logger()
 {
     local msg=${1:?}
 
-    if [ "${CONSOLE_LOG:-0}" -eq 0 ]; then
+    if [ "${OPTS['conlog']:-0}" -eq 0 ]; then
         if [[ $msg == checking* ]] || [[ $msg == *'has not changed.' ]]; then
             echo "    $msg" >&3
         else
@@ -553,37 +557,47 @@ function build.logToKafka()
 #----------------------------------------------------------------------------------------------
 function build.main()
 {
-    local -A opts
-    eval "opts=( $1 )"
+    local -A OPTS
+    eval "OPTS=( ${1:?} )"
     readonly opts
     shift
 
-    export BUILD_ALWAYS
-    export BUILD_PUSH
     export CBF_VERSION
-    export CONSOLE_LOG
-    export CONTAINER_OS
     export CONTAINER_TAG
     export KAFKA_BOOTSTRAP_SERVERS
     export KAFKA_PRODUCER
     export VERSIONS_DIRECTORY
+    export PROGRESS_LOG
 
 
-    [ "${opts['force']:-}" ]  && BUILD_ALWAYS="${opts['force']}"
-    [ "${opts['push']:-}" ]   && BUILD_PUSH="${opts['push']}"
-    [ "${opts['os']:-}" ]     && CONTAINER_OS="${opts['os']}"
-    CONSOLE_LOG="${opts['conlog']:-0}"
+    [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
+    if [ "${OPTS['user']:-}" ]; then
+        USERNAME="${OPTS['user']}"
+        USER="${OPTS['user']}"
+
+        _ARTIFACTORY_USER="$(artifactory.USER)"
+        _ARTIFACTORY_CREDENTIALS=$(custom.credentials artifactory)
+        _REGISTRY_USER="$(registry.USER)"
+        _REGISTRY_CREDENTIALS=$(custom.credentials registry)
+    fi
+
+
+    local -r logDir="${OPTS['logdir']:-}"
+    [ -d "$logDir" ] || mkdir -p "$logDir"
+    PROGRESS_LOG="$(readlink -f "${logDir}/progressInfo")"
 
 
     local -i status=0
-    if [ "${opts['logfile']:-}" ]; then
-        mkdir -p "$(dirname "${opts['logfile']}")"
-        eval echo 'build.all "${opts['base']}" "${opts['logdir']}" "$@" 2>&1 | tee '"${opts['logfile']}"
-        (build.all "${opts['base']}" "${opts['logdir']}" "$@" 2>&1 | tee "${opts['logfile']}") && status=$? || status=$?
+    if [ "${OPTS['logfile']:-}" ]; then
+        mkdir -p "$(dirname "${OPTS['logfile']}")"
+        eval echo 'build.all "$@" 2>&1 | tee '"${OPTS['logfile']}"
+        (build.all "$@" 2>&1 | tee "${OPTS['logfile']}") && status=$? || status=$?
     else
-        eval echo 'build.all "${opts['base']}" "${opts['logdir']}" "$@"'
-        (build.all "${opts['base']}" "${opts['logdir']}" "$@") && status=$? || status=$?
+        eval echo 'build.all "$@"'
+        (build.all "$@") && status=$? || status=$?
     fi
+    [ -d "$logDir" ] && [ $(ls -1A "$logDir" | wc -l) -gt 0 ] || rmdir "$logDir"
+
     return $status
 }
 
@@ -600,6 +614,11 @@ function build.module()
 
 
     # setup environment for 'docker-compose build'
+    export CBF_VERSION
+    export CONTAINER_OS="$containerOS"
+    export DEV_TEAM="${DEV_TEAM:-devops/}"
+    export DOCKER_REGISTRY=$(registry.SERVER)
+
     export CONTAINER_BUILD_TIME=$(date +%Y%m%d-%H%M%S.%N -u)
     export CONTAINER_GIT_COMMIT="$(git.HEAD)"
     export CONTAINER_GIT_REFS="($(git.refs))"
@@ -645,11 +664,12 @@ function build.module()
     local actualImage="$(eval echo $(jq '.image?' <<< $config))"
     local -i status=0
 
+
     # rebuild container because no container exists with the correct fingerprint
-    if [ "${CONSOLE_LOG:-0}" -eq 0 ]; then
+    if [ "${OPTS['conlog']:-0}" -eq 0 ]; then
         # this on Jenkins
         :> "$PROGRESS_LOG"
-        local logBase="${logDir}/${dir}.${CONTAINER_OS}"
+        local logBase="${logDir}/${dir}.${containerOS}"
         [ -f "${logBase}.out.log" ] && sudo rm "${logBase}.out.log"
         [ -f "${logBase}.err.log" ] && sudo rm "${logBase}.err.log"
         build.logInfo 'include_time' > "${logBase}.out.log"
@@ -665,7 +685,7 @@ function build.module()
 
         if [ "${BUILD_URL:-}" ]; then
             # for Jenkins: show location of log files if they have any content
-            local log_display_base="${BUILD_URL}artifact/$(basename "$logDir")/${dir}.${CONTAINER_OS}"
+            local log_display_base="${BUILD_URL}artifact/$(basename "$logDir")/${dir}.${containerOS}"
             [ -s "${logBase}.out.log" ] && echo "    STDOUT log:     ${log_display_base}.out.log/*view*/"
             [ -s "${logBase}.err.log" ] && echo "    STDERR log:     ${log_display_base}.err.log/*view*/"
         fi
@@ -720,7 +740,7 @@ function build.updateContainer()
     local -r actualImage=${3:?}
     local -r revision=${4:-}
 
-    if [ "${BUILD_ALWAYS:-0}" = 0 ]; then
+    if [ "${OPTS['force']:-0}" = 0 ]; then
         build.logger "checking for local $taggedImage with the correct fingerprint"
         local -a images
         mapfile -t images < <(build.findIdsWithFingerprint "$CONTAINER_FINGERPRINT" | grep -v '<none>:<none>' || :)
@@ -731,7 +751,7 @@ function build.updateContainer()
                 # found image by a different 'name:tag'
                 docker tag "${images[0]}" "$taggedImage"
                 doPush=1
-            elif [ "${BUILD_PUSH:-0}" != 0 ] || [ $(docker inspect "$taggedImage" | jq -r '.[].RepoDigests?|length') -eq 0 ]; then
+            elif [ "${OPTS['push']:-0}" != 0 ] || [ $(docker inspect "$taggedImage" | jq -r '.[].RepoDigests?|length') -eq 0 ]; then
                 doPush=1
             fi
             [ $doPush -eq 0 ] || docker.pushRetained 0 "$taggedImage"
@@ -745,7 +765,7 @@ function build.updateContainer()
             # downloaded image from registry
             build.changeImage "$taggedImage" "$actualImage"
             build.logImageInfo "$taggedImage" "$compose_yaml"
-            if [ "${BUILD_PUSH:-0}" != 0 ]; then
+            if [ "${OPTS['push']:-0}" != 0 ]; then
                 build.logger "pushing ${taggedImage} to registry"
                 docker.pushRetained 0 "$taggedImage"
             fi
@@ -812,7 +832,12 @@ function build.verifyModules()
 #
 #----------------------------------------------------------------------------------------------
 
-declare loader="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/appenv.bashlib"
+declare -r start=$(date '+%s')
+declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
+declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+
+declare -r loader="$PROGRAM_DIR/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries'
     exit 1
@@ -820,9 +845,8 @@ fi
 source "$loader"
 appenv.loader 'build.main'
 
-
 declare -i status
-declare -a args
-mapfile -t args < <( build.cmdLineArgs "$PWD" "$@" ) && status=$? || status=$?
-[ $status -eq 0 ] && build.main "${args[@]}" && status=$? || status=$?
+declare -a args=( $( build.cmdLineArgs "$@" ) ) && status=$? || status=$?
+[ $status -eq 0 ] && build.main "${args[@]:-}" && status=$? || status=$?
+printf '\nElapsed time: %s\n' $(timer.fmtElapsed $(( $(date '+%s') - start )) ) >&2
 exit $status

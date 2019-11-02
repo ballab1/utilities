@@ -4,11 +4,10 @@
 function deploy.usage()
 {
     local -i exit_status=${1:-1}
-    local -r progname="$( basename "${BASH_SOURCE[0]}" )"
 
     cat >&2 << EOF
 Usage:
-    $progname [ -h|--help ]
+    $PROGNAME [ -h|--help ]
               | [ --clean ]
               | [ --down ]
               | [ --init ]
@@ -140,25 +139,22 @@ function deploy.clean()
 #----------------------------------------------------------------------------------------------
 function deploy.cmdLineArgs()
 {
-    local base="${1:?}"
-    shift
-    local usage='deploy.usage'
-
     # Parse command-line options into above variable
-    local -r longOpts='help,Help,HELP,clean,down,init,latest,nodown,promote:,tag:'
-    local -r shortOpts='Hhcdilnp:t:'
+    local -r longOpts='help,Help,HELP,base:,clean,debug,down,init,latest,nodown,promote:,tag:'
+    local -r shortOpts='Hhb:cdilnp:t:'
     local -r progname="$( basename "${BASH_SOURCE[0]}" )"
-    local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$progname" -- "$@") || "$usage" $?
+    local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || deploy.usage $?
     eval set -- "$options"
 
-    local -A opts=()
-    [ "$base" ] && opts['base']="$base"
-    while true; do
-        case "${1:-}" in
-            -h|--h|--help|-help)  "$usage" 1;;
-            -H|--H|--HELP|-HELP)  "$usage" 1;;
-            --Help|-Help)         "$usage" 1;;
+    local -A opts=( ['base']="$(pwd)" )
+    [ "${DEBUG:-}" ] && opts['debug']="$DEBUG"
+
+    while [ "${1:-}" ]; do
+        case "${1,,}" in
+            -h|--h|--help|-help)  deploy.usage 1;;
+            -b|--b|--base)        opts['base']="$2";        shift 2;;
             -c|--c|--clean)       opts['clean']=1;          shift;;
+                   --debug)       opts['debug']=1;          shift;;
             -d|--d|--down)        opts['down']=1;           shift;;
             -i|--i|--init)        opts['init']=1;           shift;;
             -l|--l|--latest)      opts['latest']='HEAD';    shift;;
@@ -183,7 +179,20 @@ function deploy.cmdLineArgs()
         opts['container_tag']="$tag"
     fi
 
-
+    # show args
+    if [ ${opts['debug']:-0} -gt 0 ]; then
+        {
+            for i in "${!opts[@]}"; do
+               printf '%s: %s\n' $i "${opts[$i]}"
+            done
+            echo 'args:'
+            for i in "$@"; do
+               printf '   %s\n' "$i"
+            done
+            echo
+        } >&2
+    fi
+ 
     [ $# -eq 0 ] || term.elog 'Ignoring extra arguments\n' 'warn'
     appenv.results
 }
@@ -256,7 +265,7 @@ function deploy.containerVersion()
             fingerprint=$(docker inspect "$container" | jq -r '.[].Config.Labels."container.fingerprint"')
 
             # if the fingerprint exists, replace image tag with fingerprint
-            [ "$fingerprint" != 'null' ] && newline=${newline}':${OPTS['container_tag']:-'${fingerprint}'}'
+            [ "$fingerprint" != 'null' ] && newline=${newline}':${CONTAINER_TAG:-'${fingerprint}'}'
 
             promoted="$(eval echo $newline)"
             production="$(unset CONTAINER_TAG; eval echo $newline)"
@@ -453,9 +462,11 @@ function deploy.initialize()
 #----------------------------------------------------------------------------------------------
 function deploy.main()
 {
+    declare -A OPTS
     eval "OPTS=( ${1:?} )"
     readonly OPTS
     shift
+
     local -ra args=( "$@" )
 
     deploy.__initGlobals "${OPTS['base']}" "${OPTS['latest']:-}"
@@ -947,12 +958,9 @@ function deploy.workspace()
 #
 #----------------------------------------------------------------------------------------------
 
-declare -i status
-
-declare -A OPTS
+declare -r start=$(date '+%s')
 declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-declare -i IS_DEBUG=${DEBUG:-0}
 
 
 declare -r loader="$PROGRAM_DIR/appenv.bashlib"
@@ -960,10 +968,12 @@ if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries'
     exit 1
 fi
-
 source "$loader"
 appenv.loader 'deploy.main'
 
-declare -a args=( $( deploy.cmdLineArgs "$PWD" "$@" ) ) && status=$? || status=$?
-[ $status -eq 0 ] && deploy.main "${args[@]}" && status=$? || status=$? 
+
+declare -i status
+declare -a args=( $( deploy.cmdLineArgs "$@" ) ) && status=$? || status=$?
+[ $status -eq 0 ] && deploy.main "${args[@]:-}" && status=$? || status=$?
+printf '\nElapsed time: %s\n' $(timer.fmtElapsed $(( $(date '+%s') - start )) ) >&2
 exit $status 
