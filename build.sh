@@ -41,23 +41,22 @@ function build.all()
 
     local -r allStartTime=$(timer.getTimestamp)
 
-    cd "${OPTS['base']}"
+    cd "${OPTS['base']}" || trap.die "Invalid base directory specified: ${OPTS['base']}"
 
+    BUILD_YAML="${OPTS['base']}/build.yml"
+    [ -e "$BUILD_YAML" ] || trap.die "Unable to local build configuration file: ${BUILD_YAML}"
 
     VERSIONS_DIRECTORY="${OPTS['base']}/versions"
     local -a files=()
-    mapfile -t files < <(ls -1 "$VERSIONS_DIRECTORY" | grep -vF '.' ||:)
+    mapfile -t files < <(ls -1A "$VERSIONS_DIRECTORY" | grep -vF '.' ||:)
     [ "${#files[*]}" -eq 0 ] && trap.die "No version information available."
 
-    local updateTo
-    [[ "$(git.branch)" = *dev* ]] && updateTo=latest
-    [ "${CONTAINER_TAG:-}" ] && updateTo=latest
 
     local -a OSes
     if [ "${OPTS['os']:-}" ]; then
-        OSes=( ${OPTS['os']} )
+        OSes=( "${OPTS['os']}" )
     else
-        mapfile -t OSes < <(sed '/^[[:blank:]]*#/d;s/[[:blank:]]*#.*//' container.os)
+        mapfile -t OSes < <(lib.yamlToJson "${OPTS['base']}//build.yml" | jq -r 'try .container_os[]')
     fi
 
     local cbf_version="${CBF_VERSION:-}"
@@ -69,14 +68,20 @@ function build.all()
         fi
     fi
 
-    KAFKA_PRODUCER="$(which kafkaProducer.py 2>/dev/null ||:)"
-    [ "$KAFKA_PRODUCER" ] || KAFKA_PRODUCER="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))/kafkaProducer.py"
-    [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && echo 'Unable to locate KAFKA_PRODUCER script. No metrics gathered'
-
     echo
+    KAFKA_PRODUCER="$(command -v kafkaProducer.py)"
+    [ "${KAFKA_PRODUCER:-}" ] || KAFKA_PRODUCER="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kafkaProducer.py"
+    [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && term.elog 'Unable to locate KAFKA_PRODUCER script. No metrics gathered\n' 'yellow'
+    if [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ]; then
+        local -i status
+        KAFKA_BOOTSTRAP_SERVERS="$(lib.yamlToJson "$BUILD_YAML" | jq -re 'try .environment.KAFKA_BOOTSTRAP_SERVERS')" && status=$? || status=$?
+        [ $status -ne 0 ] && unset KAFKA_BOOTSTRAP_SERVERS
+        [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
+    fi
+
     echo "Container Build Framework version: $cbf_version"
-    echo "kafka servers:  ${KAFKA_BOOTSTRAP_SERVERS:-}"
-    echo "kafka_producer: ${KAFKA_PRODUCER:-}"
+    [ "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && echo "kafka servers:  $KAFKA_BOOTSTRAP_SERVERS"
+    [ "${KAFKA_PRODUCER:-}" ] && echo "kafka_producer: $KAFKA_PRODUCER"
     echo
 
     local -i status=0
@@ -99,15 +104,16 @@ function build.all()
     local allDuration="$(timer.fmtElapsed $allElapsed)"
     printf 'Time elapsed for overall build: %s\n' "$allDuration"
 
-    build.logToKafka "$(date +%Y%m%d-%H%M%S.%N -u)" \
+    build.logToKafka "$(date +%Y-%m-%d\T%H:%M:%S.%N\Z -u)" \
                      'n/a' \
                      "$(git.HEAD)" \
                      "$(git.remoteUrl)" \
                      "$(git.origin)" \
                      "$allDuration" \
                      "$allElapsed" \
-                     "$(git.refs)" \
-                     'overall build'
+                     "$status" \
+                     'overall build' \
+                     $(git.refs)
 
     return $status
 }
@@ -225,6 +231,11 @@ function build.cmdLineArgs()
         esac
     done
 
+    [ -e "${opts['base']}/build.yml" ] || trap.die "Unable to locate build configuration file: ${opts['base']}/build.yml"
+    if [ "${opts['os']:-}" ] && [ $(grep -cEs "${opts['os']}" <<< "$(lib.yamlToJson "${opts['base']}/build.yml" | jq -r 'try .container_os[]')") -eq 0 ]; then
+        trap.die 'Invalid operating system specified on command line'
+    fi
+
 
     # show args
     if [ ${opts['debug']:-0} -gt 0 ]; then
@@ -262,11 +273,11 @@ function build.containersForOS()
 
     [ "${OPTS['conlog']:-0}" -eq 0 ] && touch "$PROGRESS_LOG"
 
-    local build_time=$(date +%Y%m%d-%H%M%S.%N -u)
-    local fingerprint="n/a"
-    local git_commit=$(git.HEAD)
+    local build_time=$(date +%Y-%m-%d\T%H:%M:%S.%N\Z -u)
+    local fingerprint='n/a'
+    local git_commit="$(git.HEAD)"
     local git_url="$(git.remoteUrl)"
-    local origin=$(git.origin)
+    local origin="$(git.origin)"
     local git_refs="$(git.refs)"
 
     echo
@@ -321,8 +332,9 @@ function build.containersForOS()
                      "$origin" \
                      "$osDuration" \
                      "$osElapsed" \
-                     "$git_refs" \
-                     "$containerOS"
+                     "$status" \
+                     "$containerOS" \
+                     "$git_refs"
 
     return $status
 }
@@ -410,7 +422,7 @@ function build.dockerCompose()
 {
     local -r compose_yaml="${1:?}"
 
-    local jsonConfig=$( docker.yamlToJson "$compose_yaml" | jq '.services?' )
+    local jsonConfig=$( lib.yamlToJson "$compose_yaml" | jq '.services?' )
     if [ "${jsonConfig:-}" ]; then
         local -r service="$(jq -r 'keys[0]?' <<< "$jsonConfig")"
         [ -z "${service:-}" ] || jq $(eval echo "'.\"$service\"?'") <<< "$jsonConfig"
@@ -507,50 +519,49 @@ function build.logImageInfo()
 #----------------------------------------------------------------------------------------------
 function build.logToKafka()
 {
-    if [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ]; then
-        echo 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered'
+    if [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] || [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ]; then
+        # KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered
+        # Unable to locate KAFKA_PRODUCER script. No metrics gathered
         return 0
     fi
-    if [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ]; then
-        echo 'Unable to locate KAFKA_PRODUCER script. No metrics gathered'
-        return 0
-    fi
-
 
     local -r build_time=${1:-}
     local -r fingerprint=${2:-}
     local -r git_commit=${3:-}
     local -r git_url=${4:-}
     local -r origin=${5:-}
-    local -r duration=${6:-}
-    local -r elapsed=${7:-}
-    local -r git_refs=${8:-}
-    local -r status=${9:-}
-    local -r containerOS=${10:-}
+    local -r elapsed=${6:-}
+    local -r duration=${7:-}
+    local -ri status=${8:-0}
+    local -r containerOS=${9:-}
+    local -ra git_refs=${10:-}
 
-    local -a refs=( $git_refs )
+    local state='true'
+    [ $status != 0 ] && state='false'
+
+
     # create our data array that gets logged
-    local -a build_data=( "$(json.encodeField "build_time" "$build_time")"
-                          "$(json.encodeField "fingerprint" "$fingerprint")"
-                          "$(json.encodeField "commit" "$git_commit")"
-                          "$(json.encodeField "repo_url" "$git_url")"
-                          "$(json.encodeField "origin" "$origin")"
-                          "$(json.encodeField "duration" "$duration")"
-                          "$(json.encodeField "elapsed" "$elapsed")"
-                          "$(json.encodeArray "refs" $(json.arrayValues "${refs[@]}"))"
-                          "$(json.encodeField "status" "$status")"
-                          "$(json.encodeField "containerOS" "$containerOS")"
+    local -A build_data=( ['build_time']="$build_time"
+                          ['fingerprint']="$fingerprint"
+                          ['commit']="$git_commit"
+                          ['repo_url']="$git_url"
+                          ['origin']="$origin"
+                          ['duration']="$duration"
+                          ['elapsed']="$elapsed"
+                          ['refs']="$git_refs"
+                          ['status']="$state"
+                          ['container_os']="$containerOS"
                         )
     if [ "${PROGRESS_LOG:-}" ] && [ -s "$PROGRESS_LOG" ]; then
         local -a progress_log=( $(< "$PROGRESS_LOG") )
-        build_data+=("$(json.encodeArray "actions" $(json.arrayValues "${progress_log[@]}"))")
+        build_data['actions']='[progress_log]'
     fi
 
 
     # now log our data to kafka
     ("$KAFKA_PRODUCER" --server "$KAFKA_BOOTSTRAP_SERVERS"                     \
                        --topic 'container_build_data'                          \
-                       --value "$( json.encodeHash '--' "${build_data[@]}" )" &) || :
+                       --value "$( json.encodeField -- '{build_data}' )" &) || :
     return 0
 }
 
@@ -621,8 +632,8 @@ function build.module()
 
     export CONTAINER_BUILD_TIME=$(date +%Y%m%d-%H%M%S.%N -u)
     export CONTAINER_GIT_COMMIT="$(git.HEAD)"
-    export CONTAINER_GIT_REFS="($(git.refs))"
     export CONTAINER_GIT_URL="$(git.remoteUrl)"
+    export CONTAINER_GIT_REFS="$(git.refs)"
     export CONTAINER_ORIGIN="$(git.origin)"
 
     # generate fingerprint from all our dependencies
@@ -724,9 +735,9 @@ function build.module()
                      "$CONTAINER_ORIGIN" \
                      "$moduleDuration" \
                      "$moduleElapsed" \
-                     "$CONTAINER_GIT_REFS" \
                      "$status" \
-                     "$containerOS"
+                     "$containerOS" \
+                     "$CONTAINER_GIT_REFS"
 
     [ $status -eq 9 ] && status=0
     return $status
@@ -800,16 +811,16 @@ function build.verifyModules()
     shift
     local -a requestedModules=( "$@" )
     [ "${#requestedModules[*]}" -gt 0 ] || requestedModules=()
-    local -r skip_builds_file='skip.build'
+
 
     local -a modules=( $(grep -Ev '^\s*#' "$VERSIONS_DIRECTORY/${containerOS}.modules") )
     local retval=1
     for defMod in "${modules[@]}"; do
         [ -d "$defMod" ] && [ -e "${defMod}/docker-compose.yml" ] || continue
-        [ -e "$skip_builds_file" ] && [ $(grep -cHE "^$defMod\s*$" "$skip_builds_file" 2>/dev/null | cut -d':' -f2) -gt 0 ] && continue
+        [ $(grep -cEs "^$defMod\s*$" <<< "$(lib.yamlToJson "$BUILD_YAML" | jq -r 'try .skip_builds[]')") -gt 0 ] && continue
 
         local definedOS=$(grep -E '^#\s+containerOS:\s+' "${defMod}/docker-compose.yml" ||:)
-        [ "${definedOS:-}" ] && [ $(grep -cH "$containerOS" <<< "$definedOS" | awk -F ':' '{print $2}') -eq 0 ] && continue
+        [ "${definedOS:-}" ] && [ $(grep -cs "$containerOS" <<< "$definedOS") -eq 0 ] && continue
 
         if [ "${#requestedModules[*]}" -eq 0 ]; then
             echo "$defMod"
@@ -832,21 +843,22 @@ function build.verifyModules()
 #
 #----------------------------------------------------------------------------------------------
 
-declare -r start=$(date '+%s')
+declare -i start=$(date '+%s')
 declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 
 declare -r loader="$PROGRAM_DIR/appenv.bashlib"
 if [ ! -e "$loader" ]; then
-    echo 'Unable to load libraries'
+    echo 'Unable to load libraries' >&2
     exit 1
 fi
 source "$loader"
 appenv.loader 'build.main'
 
-declare -i status
+declare -i status=0
 declare -a args=( $( build.cmdLineArgs "$@" ) ) && status=$? || status=$?
-[ $status -eq 0 ] && build.main "${args[@]:-}" && status=$? || status=$?
-printf '\nElapsed time: %s\n' $(timer.fmtElapsed $(( $(date '+%s') - start )) ) >&2
+[ $status -ne 0 ] || build.main "${args[@]:-}" && status=$? || status=$?
+declare -i elapsed=$(( $(date '+%s') - start ))
+[ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
 exit $status

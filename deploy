@@ -9,6 +9,7 @@ function deploy.usage()
 Usage:
     $PROGNAME [ -h|--help ]
               | [ --clean ]
+              | [ --dev ]
               | [ --down ]
               | [ --init ]
               | [ --latest ]
@@ -19,6 +20,7 @@ Usage:
         -h --help              Display a basic set of usage instructions
         -c --clean             0:do not clean environment
                                1:clean environment before build (default)
+           --dev               do not pull new images from registry (use images on local system)
         -d --down              stop services defined by 'docker-compose.yml'
         -i --init              only initialize the environment
         -l --latest            update to latest versions of images rather than using those defined in docker-compose.yml
@@ -92,11 +94,11 @@ function deploy.__initGlobals()
     [ "${CFG_USER:-}" ] || term.elog 'CFG_USER has not been configured.\n' 'yellow'
     [ "${CFG_NAME:-}" ] || term.elog 'CFG_NAME has not been configured.\n'  'yellow'
     [ "${CFG_EMAIL:-}" ] || term.elog 'CFG_EMAIL has not been configured.\n' 'yellow'
-    [ "${CFG_USER:-}" ] && [ "${CFG_NAME:-}" ] && [ "${CFG_EMAIL:-}" ] || deploy.configSettingsHelp
+    [[ "${CFG_USER:-}" && "${CFG_NAME:-}" && "${CFG_EMAIL:-}" ]] || deploy.configSettingsHelp
     # verify we have the mandatory env variables defined
     [ "${HOST_IP:-}" ] || term.elog "HOST_IP has not been configured. Please update '$setup_config'"
     [ "${HOST_NAME:-}" ] || term.elog "HOST_NAME has not been configured. Please update '$setup_config'"
-    [ "${CFG_USER:-}" ] && [ "${CFG_NAME:-}" ] && [ "${CFG_EMAIL:-}" ] && [ "${HOST_IP:-}" ] && [ "${HOST_NAME:-}" ] || trap.die 'Invalid configuration'
+    [[ "${CFG_USER:-}" && "${CFG_NAME:-}" && "${CFG_EMAIL:-}" && "${HOST_IP:-}" && "${HOST_NAME:-}" ]] || trap.die 'Invalid configuration'
 
  
     readonly CFG_USER
@@ -123,7 +125,7 @@ function deploy.clean()
 {
     local network
     # check networks to determine if there are running containers
-    local -a networks=( $(docker.yamlToJson docker-compose.yml | jq -r '.networks|try .[].name')
+    local -a networks=( $(lib.yamlToJson docker-compose.yml | jq -r '.networks|try .[].name')
                         "$(basename "${WORKSPACE_DIR}")_default"
                        )
     for network in "${networks[@]}"; do
@@ -140,9 +142,8 @@ function deploy.clean()
 function deploy.cmdLineArgs()
 {
     # Parse command-line options into above variable
-    local -r longOpts='help,Help,HELP,base:,clean,debug,down,init,latest,nodown,promote:,tag:'
+    local -r longOpts='help,Help,HELP,base:,clean,debug,dev,down,init,latest,nodown,promote:,tag:'
     local -r shortOpts='Hhb:cdilnp:t:'
-    local -r progname="$( basename "${BASH_SOURCE[0]}" )"
     local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || deploy.usage $?
     eval set -- "$options"
 
@@ -155,6 +156,7 @@ function deploy.cmdLineArgs()
             -b|--b|--base)        opts['base']="$2";        shift 2;;
             -c|--c|--clean)       opts['clean']=1;          shift;;
                    --debug)       opts['debug']=1;          shift;;
+                   --dev)         opts['dev']=1;          shift;;
             -d|--d|--down)        opts['down']=1;           shift;;
             -i|--i|--init)        opts['init']=1;           shift;;
             -l|--l|--latest)      opts['latest']='HEAD';    shift;;
@@ -176,8 +178,9 @@ function deploy.cmdLineArgs()
             [ "${opts['latest']:-}" == 'HEAD' ] && default='latest'
             tag="$(deploy.containerTag "${default:-}")"
         fi
-        opts['container_tag']="$tag"
     fi
+    opts['container_tag']="${tag//\//-}"   # replace '/' with '-'
+
 
     # show args
     if [ ${opts['debug']:-0} -gt 0 ]; then
@@ -341,8 +344,8 @@ function deploy.docker_compose()
 function deploy.down()
 {
     local network="${1:?}"
-    local -i networks=$(docker network ls | grep -cs "$network")
-    [ "$networks" -gt 0 ] || return 1
+    local -i networkCount=$(docker network ls | grep -cs "$network")
+    [ "$networkCount" -gt 0 ] || return 1
 
     # need docker-compose.yml to stop/remove running containers
     mkdir -p "$WORKSPACE_DIR" ||:
@@ -431,7 +434,7 @@ function deploy.initialize()
     deploy.updateDockerCompose 'createWsYaml'
 
 
-    local json="$(docker.yamlToJson "$WORKSPACE_YAML")"
+    local json="$(lib.yamlToJson "$WORKSPACE_YAML")"
     local -ri num_secrets=$(jq '.services[]|select(has("secrets"))|.secrets[]' <<< "$json" | wc -l)
     [ "$num_secrets" -eq 0 ] || deploy.populateSecrets "$SECRETS_DIR"
 
@@ -466,8 +469,6 @@ function deploy.main()
     eval "OPTS=( ${1:?} )"
     readonly OPTS
     shift
-
-    local -ra args=( "$@" )
 
     deploy.__initGlobals "${OPTS['base']}" "${OPTS['latest']:-}"
 
@@ -510,7 +511,7 @@ function deploy.passwordSecret()
     local -r pwdVar=${2:?}
 
     local secret jqquery
-    local -r json="$(docker.yamlToJson "$WORKSPACE_YAML")"
+    local -r json="$(lib.yamlToJson "$WORKSPACE_YAML")"
     local password="$(jq -r '.services.'${service}'.environment.'${pwdVar} <<< "$json" )"
     if [ "$password" = 'null' ];then
         password="$(jq -r '.services.'${service}'.environment.'${pwdVar}'_FILE' <<< "$json" )"
@@ -566,7 +567,7 @@ function deploy.pushImages()
     local image service srvc
     local -a images=()
 
-    local -r json=$(docker.yamlToJson "$dc_yaml")
+    local -r json=$(lib.yamlToJson "$dc_yaml")
 
     # extract images from docker-compose
     while read -r srvc; do
@@ -625,7 +626,7 @@ function deploy.restart()
 
     # initialize workspace if required 'docker-compose.yml' is missing
     mkdir -p "$WORKSPACE_DIR" ||:
-    cd "$WORKSPACE_DIR"
+    cd "$WORKSPACE_DIR" ||:
 
     deploy.initialize
     deploy.removeCBFlogs
@@ -648,7 +649,7 @@ function deploy.restart()
     # show help at end of deploy
     [ "${INITIALIZE_COMPLETE:-}" ] && term.log 'Initializing complete.\n' 'white'
     if [ -e "${CONFIG_DIR}/completionMsg" ]; then
-        local msg="$(< ${CONFIG_DIR}/completionMsg)"
+        local msg="$(< "${CONFIG_DIR}/completionMsg")"
         term.log "$(eval "echo $msg")"'\n' 'white'
     fi
     exit 0
@@ -764,7 +765,7 @@ function deploy.updateDockerCompose()
             src_yaml="$CONFIG_YAML"
             dst_yaml="$WORKSPACE_YAML"
             process='deploy.fixupDCLineAfterRun'
-            json=$(docker.yamlToJson "$dst_yaml")
+            json=$(lib.yamlToJson "$dst_yaml")
             args=( '.newline' )
             ;;
 
@@ -772,7 +773,7 @@ function deploy.updateDockerCompose()
             src_yaml="$CONFIG_YAML"
             dst_yaml="$CONFIG_YAML"
             process='deploy.fixupDCLineAfterRun'
-            json=$(docker.yamlToJson "$dst_yaml")
+            json=$(lib.yamlToJson "$dst_yaml")
             args=( '.newline' 'isConfig' )
             ;;
 
@@ -780,7 +781,7 @@ function deploy.updateDockerCompose()
             src_yaml="$CONFIG_YAML"
             dst_yaml="$CONFIG_YAML"
             process='deploy.fixupDCLineAfterRun'
-            json=$(docker.yamlToJson "$dst_yaml")
+            json=$(lib.yamlToJson "$dst_yaml")
             args=( '.promoted' 'isConfig' )
             ;;
 
@@ -788,7 +789,7 @@ function deploy.updateDockerCompose()
             src_yaml="$CONFIG_YAML"
             dst_yaml="$CONFIG_DIR/docker-compose.master.yml"
             process='deploy.fixupDCLineAfterRun'
-            json=$(docker.yamlToJson "$WORKSPACE_YAML")
+            json=$(lib.yamlToJson "$WORKSPACE_YAML")
             args=( '.production' 'isConfig' )
             ;;
 
@@ -798,7 +799,7 @@ function deploy.updateDockerCompose()
     esac
 
 
-    local -a services="$(docker.yamlToJson "$src_yaml" | jq -r '.services|keys[]')"
+    local -a services="$(lib.yamlToJson "$src_yaml" | jq -r '.services|keys[]')"
     local tmp_file="${dst_yaml#.*}.tmp"
     (
         local service='null'
@@ -826,7 +827,7 @@ function deploy.updateDockerCompose()
                 term.elog "Failed to process $line"'\n' 'warn'
                 break
             fi
-        done < <(cat "$src_yaml")
+        done < "$src_yaml"
     ) > "$tmp_file"
 
     # if there are no changes, delete tmp file
@@ -958,22 +959,23 @@ function deploy.workspace()
 #
 #----------------------------------------------------------------------------------------------
 
-declare -r start=$(date '+%s')
+declare -i start=$(date '+%s')
 declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 
 declare -r loader="$PROGRAM_DIR/appenv.bashlib"
 if [ ! -e "$loader" ]; then
-    echo 'Unable to load libraries'
+    echo 'Unable to load libraries' >&2
     exit 1
 fi
 source "$loader"
 appenv.loader 'deploy.main'
 
 
-declare -i status
+declare -i status=0
 declare -a args=( $( deploy.cmdLineArgs "$@" ) ) && status=$? || status=$?
-[ $status -eq 0 ] && deploy.main "${args[@]:-}" && status=$? || status=$?
-printf '\nElapsed time: %s\n' $(timer.fmtElapsed $(( $(date '+%s') - start )) ) >&2
+[ $status -ne 0 ] || deploy.main "${args[@]:-}" && status=$? || status=$?
+declare -i elapsed=$(( $(date '+%s') - start ))
+[ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
 exit $status 
