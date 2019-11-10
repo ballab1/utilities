@@ -104,7 +104,7 @@ function build.all()
     local allDuration="$(timer.fmtElapsed $allElapsed)"
     printf 'Time elapsed for overall build: %s\n' "$allDuration"
 
-    build.logToKafka "$(date +%Y-%m-%d\T%H:%M:%S.%N\Z -u)" \
+    build.logToKafka "$(timer.zuluTime)" \
                      'n/a' \
                      "$(git.HEAD)" \
                      "$(git.remoteUrl)" \
@@ -113,7 +113,7 @@ function build.all()
                      "$allElapsed" \
                      "$status" \
                      'overall build' \
-                     $(git.refs)
+                     "$(git.refs)"
 
     return $status
 }
@@ -273,7 +273,7 @@ function build.containersForOS()
 
     [ "${OPTS['conlog']:-0}" -eq 0 ] && touch "$PROGRESS_LOG"
 
-    local build_time=$(date +%Y-%m-%d\T%H:%M:%S.%N\Z -u)
+    local build_time=$(timer.zuluTime)
     local fingerprint='n/a'
     local git_commit="$(git.HEAD)"
     local git_url="$(git.remoteUrl)"
@@ -446,13 +446,38 @@ function build.getImageParent()
     local -r unique=${2:-}
 
     local base=$(eval echo $( jq '.build.args.FROM_BASE?' <<< "$config" ))
+    # search local images for parent
     if [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$base")" ]; then
-        echo "pulling parent image: $base" >&2
-        [ "$(docker image ls "$base" | awk 'NR != 1')" ] || docker pull "$base" >&2 ||: return 0
+        # no immediate parent found. Need to locate best match from another branch, then resort to 'latest'
+
+        # get potential parents
+        local -a candidates=( $(lib.yamlToJson "$BUILD_YAML" | jq -r 'try .parent_branches[]') )
+        [ ${#candidates[*]} -gt 0 ] || return 0
+
+        # get actual images from registry
+        local repo="${base%:*}"
+        repo="${repo#$(registry.SERVER)}"
+        local json="$(registry.digests "$repo")"
+
+        # search for match
+        repo="${base%:*}"
+        for tag in "$(docker.tag "$base")" "${candidates[@]}"; do
+            if [ "$(jq '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")" ]; then
+                echo "pulling parent image: ${repo}:$tag" >&2
+                echo "${repo}:$tag"
+                docker pull "${repo}:$tag" >&2
+                if [ "$base" != "${repo}:$tag" ]; then
+                    docker tag "${repo}:$tag" "$base"
+                    docker rmi "${repo}:$tag"
+                fi
+                break
+            fi
+        done
+        return 0
     fi
     if [ "${unique:-}" ]; then
         local tag="$(docker inspect "$base" | jq -r '.[].Config.Labels."container.fingerprint"' )"
-        [ -z "${tag:-}" ] || [ "$tag" =  'null' ] || [ "$tag" = "${base##*:}" ] || base="${base%:*}:$tag"
+        [ -z "${tag:-}" ] || [ "$tag" =  'null' ] || [ "$tag" = "$(docker.tag "$base")" ] || base="${base%:*}:$tag"
     fi
     echo "$base"
 }
@@ -501,19 +526,22 @@ function build.logImageInfo()
     local depLog="${containerOS}.dependencies.log"
     [ -e "$depLog" ] || touch "$depLog"
 
-    printf '%s :: pulling %s\n' "$(TZ='America/New_York' date)" "$image" >> "$depLog"
-    echo '    refs:             '$(jq -r '."container.git.refs"' <<< "$json") >> "$depLog"
-    echo '    commitId:         '$(jq -r '."container.git.commit"' <<< "$json") >> "$depLog"
-    echo '    repo:             '$(jq -r '."container.git.url"' <<< "$json") >> "$depLog"
-    echo '    fingerprint:      '$(jq -r '."container.fingerprint"' <<< "$json") >> "$depLog"
-    echo '    parent:           '$(jq -r '."container.parent"' <<< "$json") >> "$depLog"
-    echo '    BASE_TAG:         '${BASE_TAG:-} >> "$depLog"
-    echo '    revision:         '$(jq -r '."container.origin"' <<< "$json") >> "$depLog"
-    echo '    build.time:       '$(jq -r '."container.build.time"' <<< "$json") >> "$depLog"
-    echo '    original.name:    '$(jq -r '."container.original.name"' <<< "$json") >> "$depLog"
+    {
+        printf '%s :: pulling %s\n' "$(TZ='America/New_York' date)" "$image"
+        echo '    refs:             '$(jq -r '."container.git.refs"' <<< "$json")
+        echo '    commitId:         '$(jq -r '."container.git.commit"' <<< "$json")
+        echo '    repo:             '$(jq -r '."container.git.url"' <<< "$json")
+        echo '    fingerprint:      '$(jq -r '."container.fingerprint"' <<< "$json")
+        echo '    parent:           '$(jq -r '."container.parent"' <<< "$json")
+        echo '    BASE_TAG:         '${BASE_TAG:-}
+        echo '    revision:         '$(jq -r '."container.origin"' <<< "$json")
+        echo '    build.time:       '$(jq -r '."container.build.time"' <<< "$json")
+        echo '    original.name:    '$(jq -r '."container.original.name"' <<< "$json")
 
-    build.dependencyInfo "$(build.dockerCompose "$dc_yaml")" >> "$depLog"
-    printf '\n\n\n' >> "$depLog"
+        build.dependencyInfo "$(build.dockerCompose "$dc_yaml")"
+        printf '\n\n\n'
+
+    } >> "$depLog"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -534,7 +562,7 @@ function build.logToKafka()
     local -r duration=${7:-}
     local -ri status=${8:-0}
     local -r containerOS=${9:-}
-    local -ra git_refs=${10:-}
+    local -a git_refs=${10:-}
 
     local state='true'
     [ $status != 0 ] && state='false'
@@ -556,7 +584,6 @@ function build.logToKafka()
         local -a progress_log=( $(< "$PROGRESS_LOG") )
         build_data['actions']='[progress_log]'
     fi
-
 
     # now log our data to kafka
     ("$KAFKA_PRODUCER" --server "$KAFKA_BOOTSTRAP_SERVERS"                     \
@@ -630,7 +657,7 @@ function build.module()
     export DEV_TEAM="${DEV_TEAM:-devops/}"
     export DOCKER_REGISTRY=$(registry.SERVER)
 
-    export CONTAINER_BUILD_TIME=$(date +%Y%m%d-%H%M%S.%N -u)
+    export CONTAINER_BUILD_TIME=$(timer.zuluTime)
     export CONTAINER_GIT_COMMIT="$(git.HEAD)"
     export CONTAINER_GIT_URL="$(git.remoteUrl)"
     export CONTAINER_GIT_REFS="$(git.refs)"
@@ -661,12 +688,15 @@ function build.module()
     if [ $(grep -c "$CONTAINER_FINGERPRINT" "$depLog") -eq 0 ]; then
         local offs=$(grep -n ' :: building ' "$depLog" | tail -2 | awk -F':' '{if(NR==1){print ($1-1)}}')
         [ -z "$offs" ] || [ $offs -le 0 ] || sed -i -e "1,$offs d" "$depLog"
-        printf '%s :: building %s\n' "$(TZ='America/New_York' date)" "$taggedImage" >> "$depLog"
-        build.logInfo >> "$depLog"
-        echo '  dependencies:' >> "$depLog"
-        local -a deps=( $dependencies )
-        printf '    %s\n' "${deps[@]}" >> "$depLog"
-        printf '\n\n\n' >> "$depLog"
+        {
+            printf '%s :: building %s\n' "$(TZ='America/New_York' date)" "$taggedImage"
+            build.logInfo
+            echo '  dependencies:'
+            local -a deps=( $dependencies )
+            printf '    %s\n' "${deps[@]}"
+            printf '\n\n\n'
+
+        } >> "$depLog"
     fi
 
 
