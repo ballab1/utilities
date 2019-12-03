@@ -120,7 +120,7 @@ function deploy.clean()
 {
     local network
     # check networks to determine if there are running containers
-    local -a networks=( $(lib.yamlToJson docker-compose.yml | jq -r '.networks|try .[].name' ||:)
+    local -a networks=( $(lib.yamlToJson docker-compose.yml | jq --compact-output --monochrome-output --raw-output '.networks|try .[].name' ||:)
                         "$(basename "${WORKSPACE_DIR}")_default"
                        )
     for network in "${networks[@]}"; do
@@ -250,7 +250,7 @@ function deploy.containerVersion()
 
     # only process lines which have 'CONTAINER_TAG'
     if [[ "$newline" = *CONTAINER_TAG* ]]; then
-        local container=$(jq -r '.container_name' <<< "$service")
+        local container=$(jq --compact-output --monochrome-output --raw-output '.container_name' <<< "$service")
         if [ "${container:-}" ]; then
 
             # strip :tag'  suffix
@@ -258,8 +258,8 @@ function deploy.containerVersion()
             [[ "$newline" = *CONTAINER_TAG ]] && newline="${newline%:\${CONTAINER_TAG*}"
 
             # since this service is running, extract the image name from service, and its fingerprint
-            orgimage="$(docker inspect "$container" | jq -r '.[].Config.Image')"
-            fingerprint=$(docker inspect "$container" | jq -r '.[].Config.Labels."container.fingerprint"')
+            orgimage="$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Image')"
+            fingerprint=$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"')
 
             # if the fingerprint exists, replace image tag with fingerprint
             [ "$fingerprint" != 'null' ] && newline=${newline}':${CONTAINER_TAG:-'${fingerprint}'}'
@@ -292,7 +292,7 @@ function deploy.createVolumeFolders()
 
     local -a dirs=()
     # find 'volumes'; remove container mount (after ':'); exclude any which start with '/' or '~'
-    mapfile -t dirs < <(jq -r ".services.${service_name}.volumes[]?" <<< "$json" \
+    mapfile -t dirs < <(jq --compact-output --monochrome-output --raw-output ".services.${service_name}.volumes[]?" <<< "$json" \
                        | awk -F ':' '{print $1}' \
                        | grep -Ev '^[/~]' \
                        | sort -u ||:)
@@ -370,7 +370,7 @@ function deploy.fixupDCLineAfterRun()
     # update image definition
     if grep -qsE '^\s+image:\s' <<< "$line"; then
         # update workspace/docker-compose.yml when we pull latest images
-        line="$(deploy.containerVersion "$line" "$service" | jq -r "$property")"
+        line="$(deploy.containerVersion "$line" "$service" | jq --compact-output --monochrome-output --raw-output "$property")"
     fi
 
     # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
@@ -430,7 +430,7 @@ function deploy.initialize()
 
 
     local json="$(lib.yamlToJson "$WORKSPACE_YAML")"
-    local -ri num_secrets=$(jq '.services[]|select(has("secrets"))|.secrets[]' <<< "$json" | wc -l)
+    local -ri num_secrets=$(jq --compact-output --monochrome-output '.services[]|select(has("secrets"))|.secrets[]' <<< "$json" | wc -l)
     [ "$num_secrets" -eq 0 ] || deploy.populateSecrets "$SECRETS_DIR"
 
 
@@ -507,12 +507,12 @@ function deploy.passwordSecret()
 
     local secret jqquery
     local -r json="$(lib.yamlToJson "$WORKSPACE_YAML")"
-    local password="$(jq -r '.services.'${service}'.environment.'${pwdVar} <<< "$json" )"
+    local password="$(jq --compact-output --monochrome-output --raw-output '.services.'${service}'.environment.'${pwdVar} <<< "$json" )"
     if [ "$password" = 'null' ];then
-        password="$(jq -r '.services.'${service}'.environment.'${pwdVar}'_FILE' <<< "$json" )"
+        password="$(jq --compact-output --monochrome-output --raw-output '.services.'${service}'.environment.'${pwdVar}'_FILE' <<< "$json" )"
         secret="$(basename "$password")"
         jqquery='.secrets."'"${secret}"'".file'
-        local pwd_file="$(eval echo "$(jq -r "$jqquery" <<< "$json" )")"
+        local pwd_file="$(eval echo "$(jq --compact-output --monochrome-output --raw-output "$jqquery" <<< "$json" )")"
         [ -e "$pwd_file" ] || trap.die "Password file: '$pwd_file' not found. Used by startup of service: $service"
         password=$(< "$pwd_file")
     fi
@@ -566,10 +566,10 @@ function deploy.pushImages()
 
     # extract images from docker-compose
     while read -r srvc; do
-        service=$(jq ".services.$srvc" <<< "$json")
-        image="$(eval echo "$(jq -r '.image' <<< "$service")" )"
+        service=$(jq --compact-output --monochrome-output ".services.$srvc" <<< "$json")
+        image="$(eval echo "$(jq --compact-output --monochrome-output --raw-output '.image' <<< "$service")" )"
         images+=( "$image" )
-    done < <(jq -r '.services|keys[]' <<< "$json")
+    done < <(jq --compact-output --monochrome-output --raw-output '.services|keys[]' <<< "$json")
 
     docker.pushRetained 1 "${images[@]}"
 }
@@ -752,7 +752,7 @@ function deploy.updateDockerCompose()
     esac
 
 
-    local -a services="$(lib.yamlToJson "$src_yaml" | jq -r '.services|keys[]')"
+    local -a services="$(lib.yamlToJson "$src_yaml" | jq --compact-output --monochrome-output --raw-output '.services|keys[]')"
     local tmp_file="${dst_yaml#.*}.tmp"
     (
         local service='null'
@@ -772,7 +772,7 @@ function deploy.updateDockerCompose()
                 # find service that defines image
                 grep -qE '^\s+'"${key}"':\s*$' <<< "$line" && \
                     grep -q "$key" <<< "$services" && \
-                    service=$(jq ".services.$key" <<< "$json")
+                    service=$(jq --compact-output --monochrome-output ".services.$key" <<< "$json")
             fi
 
             # process line
@@ -812,7 +812,7 @@ function deploy.updateSecretRefs()
 function deploy.validateDockerComposeYaml()
 {
     local -r dc_yaml=${1:?}
-    [ $(jq '.services[].ports[]' <<< "$dc_yaml" | sort | wc -l) -eq $(jq '.services[].ports[]' <<< "$dc_yaml"| sort -u) ] || return 1
+    [ $(jq --compact-output --monochrome-output '.services[].ports[]' <<< "$dc_yaml" | sort | wc -l) -eq $(jq --compact-output --monochrome-output '.services[].ports[]' <<< "$dc_yaml"| sort -u) ] || return 1
 }
 
 #----------------------------------------------------------------------------------------------

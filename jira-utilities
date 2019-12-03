@@ -1,0 +1,432 @@
+#!/bin/bash
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_general()
+{
+    local -i exit_status=${1:-1}
+
+    cat >&2 << EOF
+Usage:
+    $PROGNAME [ help [ subcommand ]
+              | fields                Dump JSON field info
+              | jiraProduction        check Support Materials Folders
+              | projectInfo           Dump JSON project info
+              | remoteLinks
+              | search <jql_sub>      Dump JQL search results ffrom <jql_sub>
+
+    Common options:
+        -h --help              Display a basic set of usage instructions
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
+        -c --credentials <credentials_file>   File container key/value pairs for user=pwd
+        -o --out               save info to 'results.json'
+
+    get info from JIRA
+
+EOF
+    exit "$exit_status"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_checkSupportMaterialsFolders()
+{
+    cat >&2 << EOF
+
+    check JIRA support materials folders
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_fields()
+{
+    cat >&2 << EOF
+
+    show fields for current project
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_projectInfo()
+{
+    cat >&2 << EOF
+
+    list JIRA properties about specifed project
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_remoteLinks()
+{
+    cat >&2 << EOF
+
+    list JIRA properties about specifed project
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_search()
+{
+    cat >&2 << EOF
+
+    use specified JQL to search for issues
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------
+function jira-utilities.checkSupportMaterialsFolders()
+{
+    local start=${1:?}
+    local end=${2:?}
+
+    local -i i last bottom top files
+    local issue topdir
+
+    local base='/disks/jiraproduction'
+    local -i ranges=0
+    local -i missing=0
+    local -i zerofiles=0
+    local -i missingtop=0
+    local -i filecnt=0
+    local -i exists=0
+
+    last=0
+    issue=''
+    i="$start"
+    while [ $(( ++i )) -lt "$end" ]; do
+       bottom=$(( $(( i / 1000 )) * 1000 ))
+       if [ "$bottom" -ne "$last" ]; then
+           (( ranges++ )) ||:
+           last=$bottom
+           top="$(( bottom + 999 ))"
+           topdir="$(printf '%07d-%07d' $bottom $top)"
+       fi
+
+       if [ ! -d "${base}/$topdir" ]; then
+           echo "issues ${topdir} are missing"
+           i="$top"
+           (( missingtop++ )) ||:
+           continue
+       fi
+
+       issue="$(printf 'MDT-%05d' $i)"
+
+       if [ ! -d "${base}/${topdir}/$issue" ]; then
+           (( missing++ )) ||:
+       else
+           files=$(find "${base}/${topdir}/${issue}" -type f | wc -l)
+           echo "$issue,$files"
+           if [ "$files" -eq 0 ]; then
+               (( zerofiles++ )) ||:
+           else
+               (( exists++ )) ||:
+           fi
+       fi
+       (( filecnt++ )) ||:
+    done
+
+    (
+        echo
+        echo "range:         $start-$end = $(( end - start ))"
+        echo "# ranges:      $ranges"
+        echo "filecnt:       $filecnt + $(( missingtop * 1000 ))"
+        echo "zerofiles:     $zerofiles"
+        echo "with files:    $exists"
+        echo "missing:       $missing + $(( missingtop * 1000 ))"
+        echo "missingtop:    $missingtop"
+    ) >&2
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.cmdLineArgs()
+{
+    local argsCondition longOpts='' options shortOpts=''
+    
+    local -A opts=()
+    [ "${DEBUG:-0}" -ne 0 ] && opts['debug']="$DEBUG"
+
+    while [ "${1:-}" ]; do
+        case "${1,,}" in
+            help|-h|--help)
+                if [ "${opts['cmd']:-}" ]; then
+                    if [ "${opts['cmd']}" = 'jira-utilities.catalogIterator' ]; then
+                        opts['oper']="${opts['oper']:17}"
+                    else
+                        opts['oper']="${opts['cmd']:17}"
+                    fi
+                    while [ $# -gt 0 ]; do
+                        shift
+                    done
+                else
+                    shift
+                fi
+                opts['cmd']='jira-utilities.usage'
+                appenv.results "$@"
+                return 0;;
+
+            -c|--credentials)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['credentials']="$2"
+                shift 2;;
+
+            -debug|--debug)
+                opts['debug']=1
+                shift;;
+
+            -u|--user)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['user']="$2"
+                shift 2;;
+
+            fields)
+                opts['cmd']='jira-utilities.fields'
+                opts['message']="display fields from $(jira.SERVER)"
+                longOpts='mode'
+                shortOpts='m'
+                argsCondition='$# -le 1'
+                shift;;
+
+            jiraproduction)
+                opts['cmd']='jira-utilities.checkSuppportMaterialsFolders'
+                opts['message']="checn JIRA support materials folders"
+                longOpts='mode'
+                shortOpts='m'
+                argsCondition='$# -eq 2'
+                shift;;
+
+            project)
+                opts['cmd']='jira-utilities.projectInfo'
+                opts['message']="display project from $(jira.SERVER)"
+                longOpts='mode'
+                shortOpts='m'
+                argsCondition='$# -le 1'
+                shift;;
+
+            remoteLinks)
+                opts['cmd']='jira-utilities.remoteLinks'
+                opts['message']="display remote links for issues in $(jira.SERVER)"
+                longOpts='mode'
+                shortOpts='m'
+                argsCondition='$# -gt 1'
+                shift;;
+
+            search)
+                opts['cmd']='jira-utilities.search'
+                opts['message']="search for issues in $(jira.SERVER)"
+                longOpts='mode,out:'
+                shortOpts='mo:'
+                argsCondition='$# -eq 1'
+                shift;;
+
+            *)
+                break;;
+        esac
+    done
+
+
+    [ -z "${opts['cmd']:-}" ] && jira-utilities.helpFor_general 1
+
+    # Parse command-line options
+    options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || jira-utilities.usage '' $?
+    eval set -- "$options"
+
+    while [ "${1:-}" ]; do
+        case "${1,,}" in
+            -o|--out)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['log']="$2"
+                shift 2;;
+
+            --)
+                shift
+                break;;
+        esac
+    done
+
+    # show args
+    if [ "${opts['debug']:-0}" -gt 0 ]; then
+        {
+            local i
+            for i in "${!opts[@]}"; do
+               printf '%s: %s\n' "$i" "${opts[$i]}"
+            done
+            echo 'args:'
+            for i in "$@"; do
+               printf '   %s\n' "$i"
+            done
+            echo
+        } >&2
+    fi
+
+    if [ "${argsCondition:-}" ]; then
+        eval "[[ $argsCondition ]]" || trap.die 'invalid arguments!'
+    fi
+    appenv.results "$@"
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.fields()
+{
+    jira.fields
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.main()
+{
+    declare -A OPTS=()
+    eval "OPTS=( $1 )"
+    readonly OPTS
+    shift
+
+    [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
+    if [ "${OPTS['user']:-}" ]; then
+        _JIRA_USER="${OPTS['user']}"
+        _JIRA_CREDENTIALS=$(credentials.get jira)
+    fi
+
+    {
+        echo
+        echo "Starting process $$ at $(TZ=New_York date)"
+        if [ "${OPTS['user']:-}" ]; then
+            echo "user:        ${OPTS['user']}"
+        elif [ "${USERNAME:-${USER:-}}" ]; then
+            echo "user:        ${USERNAME:-${USER:-}}"
+        else
+            echo 'No user sepecified'
+        fi
+        echo
+    } >&2
+
+
+    # perform what was asked
+    if [ "${OPTS['debug']:-0}" -ne 0 ]; then
+        echo "cmd:    ${OPTS['cmd']:-}" >&2
+        echo "oper:   ${OPTS['oper']:-}" >&2
+        echo "action: ${OPTS['action']:-}" >&2
+    fi
+
+    local status=0
+    if [ -z "${OPTS['log']:-}" ]; then
+
+        # regular output
+        "${OPTS['cmd']}" ${OPTS['oper']:-} "$@" && status=$? || status=$?
+
+    else
+        # redirect output so we have a filtered version going to log file, and unfiltered version to console (for colors)
+
+        # always create a log file for 
+        :>"${OPTS['log']}"
+        # create special stdout/stderr (which always receives encoded output)
+        exec 3>&1
+        (
+            # run command & combine stdout + stderr
+            # |  split output to fd3 (console copy) & console
+            # |  filter out color
+            # >>  redirect filtered console to log
+            "${OPTS['cmd']}" ${OPTS['oper']:-} "$@" 2>&1 \
+              | tee /dev/fd/3 \
+              | stdbuf -oL sed -E 's|\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]||g' \
+              >> "${OPTS['log']}"
+        ) && status=$? || status=$?
+        # close special stdout/stderr
+        exec 3>&-
+
+    fi
+    return $status
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.projectInfo()
+{
+    local project="${1:-MDT}"
+    jira.projectInfo "$project"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.remoteLinks()
+{
+    local project="${1:-MDT}"
+    jira.remoteLinks "$project"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.search()
+{
+    local jqlFile=${1:?}
+    
+    # find our jql file using search path
+    local path
+    for path in '' "$(pwd)/searches/jql/" "$PROGRAM_DIR/searches/jql/"; do
+        if [ -e "${path}$jqlFile" ]; then
+            jqlFile="$(readlink -f "${path}$jqlFile")"
+            break
+        fi
+        if [ -e "${path}${jqlFile}.jql" ]; then
+            jqlFile="$(readlink -f "${path}${jqlFile}.jql")"
+            break
+        fi
+    done
+
+
+    local -i status=0
+    local jql
+    jql=$(< "$jqlFile") || status=$?
+    [ $status -ne 0 ] && trap.die "unable to read jqlFile: $jqlFile"'\n'
+    
+    echo "jira.search = $jql" >&2
+    jira.search "$jql" || status=$?
+    echo >&2
+    return $status
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.usage()
+{
+    local -r context="${1:-help}"
+    local -ir exit_status="${2:-127}"
+
+    local -A contextHelp=( ['fields']=jira-utilities.helpFor_fields
+                           ['jiraproduction']=jira-utilities.helpFor_checkSuppportMaterialsFolders
+                           ['project']=jira-utilities.helpFor_projectInfo
+                           ['remotelinks']=jira-utilities.helpFor_remoteLinks
+                           ['search']=jira-utilities.helpFor_search
+            )
+
+    # show context sensitive help
+    ${contextHelp[${context,,}]:-jira-utilities.helpFor_general}
+    exit "$exit_status"
+}
+
+#----------------------------------------------------------------------------------------------
+#
+#   MAIN
+#
+#----------------------------------------------------------------------------------------------
+
+declare -i start=$(date '+%s')
+declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
+declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+declare -r loader="$PROGRAM_DIR/appenv.bashlib"
+if [ ! -e "$loader" ]; then
+    echo 'Unable to load libraries' >&2
+    exit 1
+fi
+source "$loader"
+appenv.loader 'jira-utilities.main'
+
+
+declare -i status=0
+declare -a args
+args=( $( jira-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
+[ $status -ne 0 ] || jira-utilities.main "${args[@]:-}" && status=$? || status=$?
+
+declare -i elapsed=$(( $(date '+%s') - start ))
+[ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
+
+exit $status

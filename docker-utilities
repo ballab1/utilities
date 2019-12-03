@@ -5,13 +5,14 @@ function docker-utilities.helpFor_general()
 {
     cat >&2 << EOF
 
-Various operations on the docker subsystem.
+Various operations on the docker subsystem and remote docker registry.
 
 Usage:
     $PROGNAME [ help [ subcommand ]
               | clean
               | delete [ --max <numberOfImages> | --start startTime [ --end endTime ] [ --keepTags ] ] <regex>[:<regex>] <regex>[:<regex>] <regex>[:<regex>] | image@digest
-              | deteTag [<regex>:]<regex>
+              | deleteLocal [<regex>:]<regex>
+              | deleteTag [<regex>:]<regex>
               | digests <repoName>
               | getRemoteImage <imageName> <imageName> <imageName>
               | manifests <imageName>
@@ -32,18 +33,19 @@ Common options:
 Commands:
     help              Display a basic set of usage instructions
     clean             Clean docker environment by removing old images and stopped containers
-    delete            Delete one or more images by specifying <regex>:<regex> - see 'usage examples'
+    delete            Delete one or more images by specifying <regex>:<regex>
           --keepTags    : delete a range of images in a repo by specifying "max # images" + keepTags
           --max         : delete a range of images in a repo by specifying "max # images"
           --start       : delete a range of images in a repo by specifying [start] <  > [end]
                         : delete images by specifying image@digest
-    deleteTag         Delete one or more tags - see 'usage examples'
+    deleteLocal       Delete local images
+    deleteTag         Delete one or more tags
     digests           Display the digests for repo
     getRemoteImage    Get one or more images from some remote, and push to the default repository
     manifests         Display the manifest for an image
-    pushimage         Push a retained image
+    pushimage         Push one or more images to '$(registry.SERVER)'
           --fingerprint : also push associated fingerprint if detected
-    rename            Rename an image - locally and in $(registry.SERVER)
+    rename            Rename an image - locally and in '$(registry.SERVER)'
     report            Generate a report of contents of the registry
           --catalog     : show the registry catalog (as text)
           --format      : format output as JSON|TEXT
@@ -123,6 +125,19 @@ EOF
 }
 
 #----------------------------------------------------------------------------------------------
+function docker-utilities.helpFor_deleteLocal()
+{
+    cat >&2 << EOF
+
+Usage:
+    $PROGNAME deleteLocal <regex>[:<regex>]
+
+    delete local images matching given. (images reamin in $(registry.SERVER))
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
 function docker-utilities.helpFor_deleteTagInSpecificRepo()
 {
     cat >&2 << EOF
@@ -187,7 +202,7 @@ function docker-utilities.helpFor_pushImage()
 Usage:
     $PROGNAME pushImage [ --fingerprint  ] <imageName> [ <imageName> [ <imageName> [ ... ]]]
     
-    push a retained image
+    push one or more images to $(registry.SERVER)
        when 'fingerprint' is specified the  associated fingerprint tag (if detected) is pushed
 
 EOF
@@ -346,6 +361,14 @@ function docker-utilities.cmdLineArgs()
                 argsCondition='$# -ge 0'
                 shift;;
 
+            deletelocal)
+                opts['cmd']='docker-utilities.deleteLocal'
+                opts['isrunning']='docker.isRunning'
+                opts['log']='activity.log'
+                opts['message']="delete images locally by specifying regex"
+                argsCondition='$# -gt 0'
+                shift;;
+
             deletetag)
                 opts['action']='docker-utilities.deleteTagInSpecificRepo'
                 opts['cmd']='docker-utilities.catalogIterator'
@@ -387,7 +410,7 @@ function docker-utilities.cmdLineArgs()
                 opts['message']="push images to $(registry.SERVER)"
                 longOpts='fingerprint,quiet'
                 shortOpts='fq'
-                argsCondition='$# -eq 1'
+                argsCondition='$# -ge 1'
                 shift;;
 
             rename)
@@ -475,7 +498,7 @@ function docker-utilities.cmdLineArgs()
 
             -e|-end|--end)
                 [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
-                opts['end']="$(jq 'fromdate' '"'$2'"')"
+                opts['end']="$(jq --compact-output --monochrome-output 'fromdate' '"'$2'"')"
                 opts['message']="delete range of images in $(registry.SERVER) by specifying start time"
                 opts['oper']='docker-utilities.deleteRangeOfImagesInRepoBySpecifyingStartEndTime'
                 shift 2;;
@@ -562,7 +585,7 @@ function docker-utilities.cmdLineArgs()
                     opts['message']="delete range of images in $(registry.SERVER) by specifying start time"
                     opts['oper']='docker-utilities.deleteRangeOfImagesInRepoBySpecifyingStartEndTime'
                     [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
-                    opts['start']="$(jq 'fromdate' '"'$2'"')"
+                    opts['start']="$(jq --compact-output --monochrome-output 'fromdate' '"'$2'"')"
                     shift 2
                 fi;;
 
@@ -575,7 +598,7 @@ function docker-utilities.cmdLineArgs()
                 opts['message']="delete range of images in $(registry.SERVER) by specifying start time"
                 opts['oper']='docker-utilities.deleteRangeOfImagesInRepoBySpecifyingStartEndTime'
                 [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
-                opts['start']="$(jq 'fromdate' '"'$2'"')"
+                opts['start']="$(jq --compact-output --monochrome-output 'fromdate' '"'$2'"')"
                 shift 2;;
 
             -summary|--summary)
@@ -626,7 +649,7 @@ function docker-utilities.cmdLineArgs()
     fi
 
     if [ "${argsCondition:-}" ]; then
-        $(eval "[[ $argsCondition ]]") || trap.die 'invalid arguments!'
+        eval "[[ $argsCondition ]]" || trap.die 'invalid arguments!'
     fi
 
     appenv.results $(docker-utilities.removeRegistryReference "$@")
@@ -774,6 +797,22 @@ function docker-utilities.deleteImage()
 }
 
 #----------------------------------------------------------------------------------------------
+function docker-utilities.deleteLocal()
+{
+    local ref
+    local -a images=()
+    for ref in "$@"; do
+        images+=( $(docker images -q --filter "reference=${ref}"  --format "{{.Repository}}:{{.Tag}}") )
+    done
+    if [ ${#images[@]} -eq 0 ]; then
+        trap.die "No images matching given criteria: $(IFS=' ' echo $*)"
+    else
+        docker-utilities.run docker rmi "${images[@]}"
+        docker-utilities.show images 
+    fi
+}
+
+#----------------------------------------------------------------------------------------------
 # deleting images within a repo : delete a range of images in a repo by specifying "max # images"
 function docker-utilities.deleteRangeOfImagesInRepoBySpecifyingMaxNumberOfImages()
 {
@@ -787,18 +826,18 @@ function docker-utilities.deleteRangeOfImagesInRepoBySpecifyingMaxNumberOfImages
 
     local -i status=0
     local -i max_images="${OPTS['max']:-$MAX_IMAGES}"
-    local -ir imageCount=$(jq 'length' <<< "$json")
+    local -ir imageCount=$(jq --compact-output --monochrome-output 'length' <<< "$json")
     if [ $imageCount -ge $max_images ]; then
         local -ir delta=$(( imageCount - $max_images + 1 ))
         [ $delta -le 1 ] || term.log "    repo ${repo} contains ${delta} images over recommended limit"'\n' 'lt_yellow'
-        json=$(jq -r "sort_by(.createTime|fromdate)[0:${delta}]" <<< "$json")
+        json=$(jq --compact-output --monochrome-output --raw-output "sort_by(.createTime|fromdate)[0:${delta}]" <<< "$json")
 
         local -i idx
         local digest image_json tags
         for (( idx=0; idx < delta; idx++ )); do
-            image_json="$(jq '.['$idx']' <<< "$json")"
-            digest=$(jq -r '.digest' <<< "$image_json")
-            tags=$(jq -r '.tags|join(",")' <<< "$image_json")
+            image_json="$(jq --compact-output --monochrome-output '.['$idx']' <<< "$json")"
+            digest=$(jq --compact-output --monochrome-output --raw-output '.digest' <<< "$image_json")
+            tags=$(jq --compact-output --monochrome-output --raw-output '.tags|join(",")' <<< "$image_json")
             docker-utilities.addImageToList "${repo}@$digest" "$tags" || status=1
         done
     fi
@@ -819,18 +858,18 @@ function docker-utilities.deleteRangeOfImagesInRepoBySpecifyingMaxNumberOfImages
 
     local -i status=0
     local -i max_images="${OPTS['max']:-$MAX_IMAGES}"
-    local -ir imageCount=$(jq '[.[]|select((.tags|length) == 1)]|length' <<< "$json")
+    local -ir imageCount=$(jq --compact-output --monochrome-output '[.[]|select((.tags|length) == 1)]|length' <<< "$json")
     if [ $imageCount -ge $max_images ]; then
         local -ir delta=$(( imageCount - max_images + 1 ))
         [ $delta -le 1 ] || term.log "    repo ${repo} contains ${delta} images over recommended limit"'\n' 'lt_yellow'
-        json=$(jq -r "[.[]|select((.tags|length) == 1)]|sort_by(.createTime|fromdate)[0:${delta}]" <<< "$json")
+        json=$(jq --compact-output --monochrome-output --raw-output "[.[]|select((.tags|length) == 1)]|sort_by(.createTime|fromdate)[0:${delta}]" <<< "$json")
 
         local -i idx
         local digest image_json tags
         for (( idx=0; idx < delta; idx++ )); do
-            image_json="$(jq '.['$idx']' <<< "$json")"
-            digest=$(jq -r '.digest' <<< "$image_json")
-            tags=$(jq -r '.tags|join(",")' <<< "$image_json")
+            image_json="$(jq --compact-output --monochrome-output '.['$idx']' <<< "$json")"
+            digest=$(jq --compact-output --monochrome-output --raw-output '.digest' <<< "$image_json")
+            tags=$(jq --compact-output --monochrome-output --raw-output '.tags|join(",")' <<< "$image_json")
             docker-utilities.addImageToList "${repo}@$digest" "$tags" || status=1
         done
     fi
@@ -848,8 +887,8 @@ function docker-utilities.deleteRangeOfImagesInRepoBySpecifyingStartEndTime()
     docker-utilities.digests 'json' "$repo"
     [ "${#json}" -gt 0 ] || trap.die "repository: ${repo} - does not exist"
 
-    json=$(jq -r "sort_by(.createTime|fromdate)" <<< "$json")
-    local -ir imageCount=$(jq 'length' <<< "$json")
+    json=$(jq --compact-output --monochrome-output --raw-output "sort_by(.createTime|fromdate)" <<< "$json")
+    local -ir imageCount=$(jq --compact-output --monochrome-output 'length' <<< "$json")
 
     local -i createTime
     local -i idx
@@ -859,15 +898,45 @@ function docker-utilities.deleteRangeOfImagesInRepoBySpecifyingStartEndTime()
     local -i min_start_time="${opts['start']:-$MIN_START_TIME}"
     local -i max_end_time="${opts['end']:-$MAX_END_TIME}"
     for (( idx=0; idx < imageCount; idx++ )); do
-        image_json="$(jq '.['$idx']' <<< "$json")"
-        createTime=$(jq -r '.createTime|fromdate' <<< "$image_json")
+        image_json="$(jq --compact-output --monochrome-output '.['$idx']' <<< "$json")"
+        createTime=$(jq --compact-output --monochrome-output --raw-output '.createTime|fromdate' <<< "$image_json")
         [ "$createTime" -gt "$min_start_time" ] && [ "$createTime" -lt "$max_end_time"  ] && continue
 
-        digest=$(jq -r '.digest' <<< "$image_json")
-        tags=$(jq -r '.tags|join(",")' <<< "$image_json")
+        digest=$(jq --compact-output --monochrome-output --raw-output '.digest' <<< "$image_json")
+        tags=$(jq --compact-output --monochrome-output --raw-output '.tags|join(",")' <<< "$image_json")
         docker-utilities.addImageToList "${repo}@$digest" "$tags" || status=1
     done
     return $status
+}
+
+#----------------------------------------------------------------------------------------------
+# deleting repos : delete a repo by specifying image:*
+function docker-utilities.deleteTag()
+{
+    local -r repo=${1:?}
+    local -r tag=${2:?}
+    local digest json repo_json x
+    local -a tagsToDelete
+    local -i i
+
+    docker-utilities.digests 'repo_json' "$repo" 'notimes'
+    [ "${repo_json:-}" ] || return 0
+
+    for (( i=0; i<$(jq --compact-output --monochrome-output 'length' <<< "$repo_json"); i++ )); do
+        json=$(jq --compact-output --monochrome-output '.['$i']' <<< "$repo_json")
+        digest=$(jq --compact-output --monochrome-output --raw-output '.digest' <<< "$json")
+        [ "${digest:-}" ] || continue
+
+        tagsToDelete=()
+        for x in $(jq --compact-output --monochrome-output --raw-output '.tags[]' <<< "$json"); do
+            [[ $x =~ $tag ]] || continue
+            tagsToDelete+=( "$x" )
+        done
+        [ "${#tagsToDelete[*]}" -le 0 ] && continue
+
+        docker-utilities.addImageToList "${repo}@$digest" "${tagsToDelete[@]}" || status=1
+    done
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -896,7 +965,7 @@ function docker-utilities.deleteTagInSpecificRepo()
     local -a tags
 
     # get tags associated with same digest, but exclude those we want to delete
-    mapfile -t tags < <(jq -r '.[]|select(.digest == "'$digest'").tags[]' <<< "$repo_json" | grep -vF "${tagsToDelete[*]}" ||:)
+    mapfile -t tags < <(jq --compact-output --monochrome-output --raw-output '.[]|select(.digest == "'$digest'").tags[]' <<< "$repo_json" | grep -vF "${tagsToDelete[*]}" ||:)
     {
         echo "ref:       $ref"
         echo "repo:      $repo"
@@ -951,36 +1020,6 @@ function docker-utilities.deleteTagInSpecificRepo()
         fi
         echo >&2
     fi
-    return 0
-}
-
-#----------------------------------------------------------------------------------------------
-# deleting repos : delete a repo by specifying image:*
-function docker-utilities.deleteTag()
-{
-    local -r repo=${1:?}
-    local -r tag=${2:?}
-    local digest json repo_json x
-    local -a tagsToDelete
-    local -i i
-
-    docker-utilities.digests 'repo_json' "$repo" 'notimes'
-    [ "${repo_json:-}" ] || return 0
-
-    for (( i=0; i<$(jq 'length' <<< "$repo_json"); i++ )); do
-        json=$(jq '.['$i']' <<< "$repo_json")
-        digest=$(jq -r '.digest' <<< "$json")
-        [ "${digest:-}" ] || continue
-
-        tagsToDelete=()
-        for x in $(jq -r '.tags[]' <<< "$json"); do
-            [[ $x =~ $tag ]] || continue
-            tagsToDelete+=( "$x" )
-        done
-        [ "${#tagsToDelete[*]}" -le 0 ] && continue
-
-        docker-utilities.addImageToList "${repo}@$digest" "${tagsToDelete[@]}" || status=1
-    done
     return 0
 }
 
@@ -1124,7 +1163,7 @@ function docker-utilities.manifests()
 
     echo '"manifest":' >&2
 
-    registry.manifest "$(docker.repo "$image")" "$(docker.tag "$image")" | jq '.'
+    registry.manifest "$(docker.repo "$image")" "$(docker.tag "$image")" | jq --compact-output --monochrome-output '.'
 }
 
 #----------------------------------------------------------------------------------------------
@@ -1137,7 +1176,7 @@ function docker-utilities.markImageForDeletion()
     local -A digests
 
     docker-utilities.digests 'json' "$repo" 'notimes'
-    eval "digests=( $(jq -r '.[]|.tags|=join(",")|"[\(.digest)]=\(.tags)"' <<< "$json" ||:) )"
+    eval "digests=( $(jq --compact-output --monochrome-output --raw-output '.[]|.tags|=join(",")|"[\(.digest)]=\(.tags)"' <<< "$json" ||:) )"
     [ "${#digests[*]}" -le 0 ] && return 0
 
     for digest in "${!digests[@]}"; do
@@ -1302,8 +1341,8 @@ function docker-utilities.reportTagSummary()
         for name in "${catalog[@]}"; do
             docker-utilities.digests 'json' "$name" 'notimes'
             [ "${#json}" -gt 0 ] || continue
-            (( digests+=$(jq -r '.|length' <<< "$json") )) ||:
-            for tag in $(jq -r '.[].tags[]' <<< "$json"); do
+            (( digests+=$(jq --compact-output --monochrome-output --raw-output '.|length' <<< "$json") )) ||:
+            for tag in $(jq --compact-output --monochrome-output --raw-output '.[].tags[]' <<< "$json"); do
                 if [ "${#tag}" -eq 64 ]; then
                     (( fingerprints++ )) ||:
                 elif [ -z "${tags[$tag]:-}" ]; then
@@ -1358,7 +1397,7 @@ function docker-utilities.retagImages()
     [ ! -e "$yaml" ] && trap.die "Unable to locate $yaml"'\n'
 
     local -a images
-    mapfile -f images < <(lib.yamlToJson "$yaml" | jq -r '.services[].image' ||:)
+    mapfile -f images < <(lib.yamlToJson "$yaml" | jq --compact-output --monochrome-output --raw-output '.services[].image' ||:)
     if [ "${#images[*]}" -gt 0 ]; then
         local image target
         for image in "${images[@]}"; do
@@ -1431,7 +1470,7 @@ function docker-utilities.show()
                 for network in "${networks[@]}"; do
                     echo $network 
                     mapfile -t hosts < <(docker network inspect "$(cut -d ' ' -f 1 <<< "$network")" | \
-                                         jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
+                                         jq --compact-output --monochrome-output --raw-output ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
                                          sort -t "." -k 4g ||:)
                     [ "${#hosts[*]}" -gt 0 ] || continue
                     printf '    %s\n' "${hosts[@]}"
@@ -1460,9 +1499,9 @@ function docker-utilities.show()
             local yaml=${2:-docker-compose.yml}
             [ ! -e "$yaml" ] && trap.die "Unable to locate $yaml"'\n'
 
-            local jsonConfig=$(lib.yamlToJson "$yaml" | jq -c '.services?')
+            local jsonConfig=$(lib.yamlToJson "$yaml" | jq --compact-output --monochrome-output '.services?')
             [ -z "${jsonConfig:-}" ] && trap.die echo "Invalid file: $yaml"'\n'
-            jq -r 'keys[]?' <<< "$jsonConfig" && status=$? || status=$?
+            jq --compact-output --monochrome-output --raw-output 'keys[]?' <<< "$jsonConfig" && status=$? || status=$?
             ;;
     esac
     echo >&2
@@ -1479,7 +1518,7 @@ function docker-utilities.show_digests()
     echo '"digests":' >&2
     {
         registry.digests "$(docker.repo "$image")"
-    } | jq '.'
+    } | jq --compact-output --monochrome-output '.'
 }
 
 #----------------------------------------------------------------------------------------------
@@ -1522,6 +1561,7 @@ function docker-utilities.usage()
 
     local -A contextHelp=( ['clean']=docker-utilities.helpFor_clean
                            ['delete']=docker-utilities.helpFor_delete
+                           ['deletelocal']=docker-utilities.helpFor_deleteLocal
                            ['deletetaginspecificrepo']=docker-utilities.helpFor_deleteTagInSpecificRepo
                            ['digests']=docker-utilities.helpFor_digests
                            ['getimage']=docker-utilities.helpFor_getImage

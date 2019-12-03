@@ -14,12 +14,12 @@ declare -a PIDS
 declare ID=${1:?}
 
 
-mapfile -t PIDS < <(grep  "$ID" 2>/dev/null  $(find /proc/*/mounts 2>/dev/null) | cut -d '/' -f3)
+mapfile -t PIDS < <(grep  "$ID" 2>/dev/null  $(find /proc/*/mounts 2>/dev/null) | cut -d '/' -f 3 | sort -u -g)
 
 [ "${#PIDS[*]}" -eq 0 ] &&  echo "No pids found" && exit 0
 
 printf "PID\tMNTNS\t\t\tNAME\n"
-for PID in $(printf '%s\n' "${PIDS[@]}" | sort -g); do
+for PID in "${#PIDS[@]}"; do
 
     # Ignore self and thread-self
     [ "$PID" = "self" ] &&  continue

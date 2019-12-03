@@ -58,7 +58,7 @@ function build.all()
     if [ "${OPTS['os']:-}" ]; then
         OSes=( "${OPTS['os']}" )
     else
-        mapfile -t OSes < <(jq -r 'try .container_os[]' <<< "$BUILD_YAML" ||:)
+        mapfile -t OSes < <(jq --compact-output --monochrome-output --raw-output 'try .container_os[]' <<< "$BUILD_YAML" ||:)
     fi
 
     local cbf_version="${CBF_VERSION:-}"
@@ -76,7 +76,7 @@ function build.all()
     [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && term.elog 'Unable to locate KAFKA_PRODUCER script. No metrics gathered\n' 'yellow'
     if [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ]; then
         local -i status
-        KAFKA_BOOTSTRAP_SERVERS="$(jq -re 'try .environment.KAFKA_BOOTSTRAP_SERVERS' <<< "$BUILD_YAML")" && status=$? || status=$?
+        KAFKA_BOOTSTRAP_SERVERS="$(jq --compact-output --exit-status --monochrome-output --raw-output 'try .environment.KAFKA_BOOTSTRAP_SERVERS' <<< "$BUILD_YAML")" && status=$? || status=$?
         [ $status -ne 0 ] && unset KAFKA_BOOTSTRAP_SERVERS
         [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
     fi
@@ -235,7 +235,7 @@ function build.cmdLineArgs()
     done
 
     [ -e "${opts['base']}/build.yml" ] || trap.die "Unable to locate build configuration file: ${opts['base']}/build.yml"
-    if [ "${opts['os']:-}" ] && [ $(grep -cEs "${opts['os']}" <<< "$(lib.yamlToJson "${opts['base']}/build.yml" | jq -r 'try .container_os[]')") -eq 0 ]; then
+    if [ "${opts['os']:-}" ] && [ $(grep -cEs "${opts['os']}" <<< "$(lib.yamlToJson "${opts['base']}/build.yml" | jq --compact-output --monochrome-output --raw-output 'try .container_os[]')") -eq 0 ]; then
         trap.die 'Invalid operating system specified on command line'
     fi
 
@@ -376,13 +376,13 @@ function build.dependencyInfo()
 
     # resolve 'docker build.args' config (without reference to FROM_BASE) from docker-compose.yml
     set +u
-    eval echo $(jq '.build.args? | del(.FROM_BASE)' <<< "$config")
+    eval echo $(jq --compact-output --monochrome-output '.build.args? | del(.FROM_BASE)' <<< "$config")
     set -u
 
 
     # container digest of layer that we are building on top of
     local base=$(build.getImageParent "$config")
-    docker inspect "$base" | jq '.[].Id?'          # digest sha from parent
+    docker inspect "$base" | jq --compact-output --monochrome-output '.[].Id?'          # digest sha from parent
 
 
     # anything dirty in workspace
@@ -416,7 +416,7 @@ function build.dependencyInfo()
 
     else
         # use parent's cbf.version
-        docker inspect "$base" | jq -r '.[].Config.Labels."version.cbf"?'
+        docker inspect "$base" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."version.cbf"?'
     fi
 }
 
@@ -436,10 +436,10 @@ function build.dockerCompose()
 {
     local -r compose_yaml="${1:?}"
 
-    local jsonConfig=$( lib.yamlToJson "$compose_yaml" | jq '.services?' )
+    local jsonConfig=$( lib.yamlToJson "$compose_yaml" | jq --compact-output --monochrome-output '.services?' )
     if [ "${jsonConfig:-}" ]; then
-        local -r service="$(jq -r 'keys[0]?' <<< "$jsonConfig")"
-        [ -z "${service:-}" ] || jq $(eval echo "'.\"$service\"?'") <<< "$jsonConfig"
+        local -r service="$(jq --compact-output --monochrome-output --raw-output 'keys[0]?' <<< "$jsonConfig")"
+        [ -z "${service:-}" ] || jq --compact-output --monochrome-output $(eval echo "'.\"$service\"?'") <<< "$jsonConfig"
     fi
 }
 
@@ -450,7 +450,7 @@ function build.findIdsWithFingerprint()
 
     curl --silent \
          --unix-socket /var/run/docker.sock http://localhost/images/json \
-         | jq -r ".[]|select(.Labels.\"container.fingerprint\" == \"$fingerprint\").RepoTags[]?"
+         | jq --compact-output --monochrome-output --raw-output ".[]|select(.Labels.\"container.fingerprint\" == \"$fingerprint\").RepoTags[]?"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -459,14 +459,14 @@ function build.getImageParent()
     local -r config=${1:?}
     local -r unique=${2:-}
 
-    local base=$(eval echo $( jq '.build.args.FROM_BASE?' <<< "$config" ))
+    local base=$(eval echo $( jq --compact-output --monochrome-output '.build.args.FROM_BASE?' <<< "$config" ))
     # search local images for parent
     if [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$base")" ]; then
         # no immediate parent found. Need to locate best match from another branch, then resort to 'latest'
 
         # get potential parents
         local -a candidates
-        mapfile -t candidates < <(jq -r 'try .parent_branches[]' <<< "$BUILD_YAML" ||:)
+        mapfile -t candidates < <(jq --compact-output --monochrome-output --raw-output 'try .parent_branches[]' <<< "$BUILD_YAML" ||:)
         [ ${#candidates[*]} -gt 0 ] || return 0
 
         # get actual images from registry
@@ -477,7 +477,7 @@ function build.getImageParent()
         # search for match
         repo="${base%:*}"
         for tag in "$(docker.tag "$base")" "${candidates[@]}"; do
-            if [ "$(jq '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")" ]; then
+            if [ "$(jq --compact-output --monochrome-output '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")" ]; then
                 echo "pulling parent image: ${repo}:$tag" >&2
                 echo "${repo}:$tag"
                 docker pull "${repo}:$tag" >&2
@@ -491,7 +491,7 @@ function build.getImageParent()
         return 0
     fi
     if [ "${unique:-}" ]; then
-        local tag="$(docker inspect "$base" | jq -r '.[].Config.Labels."container.fingerprint"' )"
+        local tag="$(docker inspect "$base" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"' )"
         [ -z "${tag:-}" ] || [ "$tag" =  'null' ] || [ "$tag" = "$(docker.tag "$base")" ] || base="${base%:*}:$tag"
     fi
     echo "$base"
@@ -534,29 +534,32 @@ function build.logImageInfo()
     local -r image=${1:?}
     local -r dc_yaml=${2:?}
 
-    local containerOS="${image#*/}"
-    containerOS="${containerOS%%/*}"
+    [ -z "${containerOS:-}" ] && term.elog 'container OS not defined\n' 'yellow'
 
-    local json="$(docker inspect "$image" | jq '.[].Config.Labels')"
+
+    local json="$(docker inspect "$image" | jq --compact-output --monochrome-output '.[].Config.Labels')"
     local depLog="${containerOS}.dependencies.log"
     [ -e "$depLog" ] || touch "$depLog"
 
     {
         printf '%s :: pulling %s\n' "$(TZ='America/New_York' date)" "$image"
-        echo '    refs:             '$(jq -r '."container.git.refs"' <<< "$json")
-        echo '    commitId:         '$(jq -r '."container.git.commit"' <<< "$json")
-        echo '    repo:             '$(jq -r '."container.git.url"' <<< "$json")
-        echo '    fingerprint:      '$(jq -r '."container.fingerprint"' <<< "$json")
-        echo '    parent:           '$(jq -r '."container.parent"' <<< "$json")
+        echo '    refs:             '$(jq --compact-output --monochrome-output --raw-output '."container.git.refs"' <<< "$json")
+        echo '    commitId:         '$(jq --compact-output --monochrome-output --raw-output '."container.git.commit"' <<< "$json")
+        echo '    repo:             '$(jq --compact-output --monochrome-output --raw-output '."container.git.url"' <<< "$json")
+        echo '    fingerprint:      '$(jq --compact-output --monochrome-output --raw-output '."container.fingerprint"' <<< "$json")
+        echo '    parent:           '$(jq --compact-output --monochrome-output --raw-output '."container.parent"' <<< "$json")
         echo '    BASE_TAG:         '${BASE_TAG:-}
-        echo '    revision:         '$(jq -r '."container.origin"' <<< "$json")
-        echo '    build.time:       '$(jq -r '."container.build.time"' <<< "$json")
-        echo '    original.name:    '$(jq -r '."container.original.name"' <<< "$json")
+        echo '    revision:         '$(jq --compact-output --monochrome-output --raw-output '."container.origin"' <<< "$json")
+        echo '    build.time:       '$(jq --compact-output --monochrome-output --raw-output '."container.build.time"' <<< "$json")
+        echo '    original.name:    '$(jq --compact-output --monochrome-output --raw-output '."container.original.name"' <<< "$json")
 
         build.dependencyInfo "$(build.dockerCompose "$dc_yaml")"
         printf '\n\n\n'
 
     } >> "$depLog"
+
+    [ -z "$(jq --compact-output --monochrome-output --raw-output '."container.parent"' <<< "$json")" ] && term.elog 'container OS not defined\n' 'yellow'
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -680,7 +683,7 @@ function build.module()
     export CONTAINER_ORIGIN="$(git.origin)"
 
     # generate fingerprint from all our dependencies
-    local taggedImage="$(eval echo $(jq '.image?' <<< $config))"
+    local taggedImage="$(eval echo $(jq --compact-output --monochrome-output '.image?' <<< $config))"
 
     export BASE_TAG="$(build.baseTag "${taggedImage%:*}")"
     export CONTAINER_PARENT="$(build.getImageParent "$config" 'unique')"
@@ -718,7 +721,7 @@ function build.module()
 
     # get name of image tagged with fingerprint
     export CONTAINER_TAG="$CONTAINER_FINGERPRINT"
-    local actualImage="$(eval echo $(jq '.image?' <<< $config))"
+    local actualImage="$(eval echo $(jq --compact-output --monochrome-output '.image?' <<< $config))"
     local -i status=0
 
 
@@ -808,7 +811,7 @@ function build.updateContainer()
                 # found image by a different 'name:tag'
                 docker tag "${images[0]}" "$taggedImage"
                 doPush=1
-            elif [ "${OPTS['push']:-0}" != 0 ] || [ $(docker inspect "$taggedImage" | jq -r '.[].RepoDigests?|length') -eq 0 ]; then
+            elif [ "${OPTS['push']:-0}" != 0 ] || [ $(docker inspect "$taggedImage" | jq --compact-output --monochrome-output --raw-output '.[].RepoDigests?|length') -eq 0 ]; then
                 doPush=1
             fi
             [ $doPush -eq 0 ] || docker.pushRetained 0 "$taggedImage"
@@ -831,8 +834,12 @@ function build.updateContainer()
         fi
     fi
 
-    # export any custom variables needed
-    lib.exportFileVars custom.properties
+
+    # get any custom variables needed and export them
+    local -a custom=( $(jq --compact-output --monochrome-output --raw-output 'try .custom-properties[]' <<< "$BUILD_YAML" ||:) )
+    if [ "${#custom[*]}" -gt 0 ]; then
+        lib.exportFileVars < <(printf '%s\n' "${custom[@]}")
+    fi
 
 
     # rebuild container because no container exists with the correct fingerprint
@@ -861,7 +868,7 @@ function build.verifyModules()
     local retval=1
     for defMod in "${modules[@]}"; do
         [ -d "$defMod" ] && [ -e "${defMod}/docker-compose.yml" ] || continue
-        [ $(grep -cEs "^$defMod\s*$" <<< "$(jq -r 'try .skip_builds[]' <<< "$BUILD_YAML" ||:)") -gt 0 ] && continue
+        [ $(grep -cEs "^$defMod\s*$" <<< "$(jq --compact-output --monochrome-output --raw-output 'try .skip_builds[]' <<< "$BUILD_YAML" ||:)") -gt 0 ] && continue
 
         local definedOS=$(grep -E '^#\s+containerOS:\s+' "${defMod}/docker-compose.yml" ||:)
         [ "${definedOS:-}" ] && [ $(grep -cs "$containerOS" <<< "$definedOS") -eq 0 ] && continue
