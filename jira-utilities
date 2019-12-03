@@ -285,8 +285,8 @@ function jira-utilities.main()
 
     [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
     if [ "${OPTS['user']:-}" ]; then
-        _JIRA_USER="${OPTS['user']}"
-        _JIRA_CREDENTIALS=$(credentials.get jira)
+        export _JIRA_USER="${OPTS['user']}"
+        export _JIRA_CREDENTIALS=$(credentials.get jira)
     fi
 
     {

@@ -139,15 +139,12 @@ function build.all()
 #
 function build.baseTag()
 {
-    local -r repoName=${1:?}
-
     if [ "${BASE_TAG:-}" ]; then
         echo "$BASE_TAG"
         return 0
     fi
 
     local branch=$(git.branch)
-
     echo "${branch//\//-}"
 }
 
@@ -194,10 +191,10 @@ function build.changeImage()
 
     [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}'  --filter "reference=$taggedImage")" ] || \
         [ "$(docker ps --format '{{.Image}}' | grep "$taggedImage")" ] || \
-        docker rmi "$taggedImage"
+        build.run docker rmi "$taggedImage"
 
     [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$actualImage")" ] || \
-        docker tag "$actualImage" "$taggedImage"
+        build.run docker tag "$actualImage" "$taggedImage"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -218,19 +215,65 @@ function build.cmdLineArgs()
 
     while [ "${1:-}" ]; do
         case "${1,,}" in
-            -h|--h|--help|-help)  build.usage 1;;
-            -d|--d|--debug)       opts['debug']=1; shift;;
-            -u|--u|--user)        opts['user']="$2"; shift 2;;
-                   --credentials) opts['credentials']="$2"; shift 2;;
-            -b|--b|--base)        opts['base']="$2"; shift 2;;
-            -c|--c|--console)     opts['console']=1; shift 1;;
-            -f|--f|--force)       opts['force']=1; shift 1;;
-               --logdir)          opts['logdir']="$2"; shift 2;;
-            -l|--l|--logfile)     opts['logfile']="$2"; shift 2;;
-            -p|--p|--push)        opts['push']=1; shift 1;;
-               --no-push)         opts['push']=-1; shift 1;;
-            -o|--o|--os)          opts['os']="$2"; shift 2;;
-            --)                   shift; break;;
+            -h|--h|--help|-help)
+                build.usage 1;;
+
+            -d|--d|--debug)
+                opts['debug']=1
+                shift;;
+
+            -u|--u|--user)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['user']="$2"
+                shift 2;;
+
+            --credentials)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['credentials']="$2"
+                shift 2;;
+
+            -b|--b|--base)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['base']="$2"
+                shift 2;;
+
+            -c|--c|--console)
+                opts['console']=1
+                shift 1;;
+
+            -f|--f|--force)
+                opts['force']=1
+                shift 1;;
+
+            --logdir)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['logdir']="$2"
+                shift 2;;
+
+            -l|--l|--logfile)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['logfile']="$2"
+                shift 2;;
+
+            -p|--p|--push)
+                opts['push']=1
+                shift 1;;
+
+            --no-push)
+               opts['push']=-1
+               shift 1;;
+
+            -o|--o|--os)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['os']="$2"
+                shift 2;;
+
+            --)
+                shift
+                break;;
+
+            *)
+                break;;
         esac
     done
 
@@ -465,25 +508,23 @@ function build.getImageParent()
         # no immediate parent found. Need to locate best match from another branch, then resort to 'latest'
 
         # get potential parents
-        local -a candidates
-        mapfile -t candidates < <(jq --compact-output --monochrome-output --raw-output 'try .parent_branches[]' <<< "$BUILD_YAML" ||:)
-        [ ${#candidates[*]} -gt 0 ] || return 0
+        local -a candidates=( $(build.baseTag) )
+        candidates+=( $(jq --compact-output --monochrome-output --raw-output 'try .parent_branches[]' <<< "$BUILD_YAML" ||:) )
 
         # get actual images from registry
-        local repo="${base%:*}"
-        repo="${repo#$(registry.SERVER)}"
+        local repo="$(docker.repo "$base")"
         local json="$(registry.digests "$repo")"
 
         # search for match
-        repo="${base%:*}"
+        repo="$(docker.baseImage "$base")"
         for tag in "$(docker.tag "$base")" "${candidates[@]}"; do
             if [ "$(jq --compact-output --monochrome-output '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")" ]; then
                 echo "pulling parent image: ${repo}:$tag" >&2
                 echo "${repo}:$tag"
-                docker pull "${repo}:$tag" >&2
+                build.run docker pull "${repo}:$tag" >&2
                 if [ "$base" != "${repo}:$tag" ]; then
-                    docker tag "${repo}:$tag" "$base"
-                    docker rmi "${repo}:$tag"
+                    build.run docker tag "${repo}:$tag" "$base"
+                    build.run docker rmi "${repo}:$tag"
                 fi
                 break
             fi
@@ -494,6 +535,7 @@ function build.getImageParent()
         local tag="$(docker inspect "$base" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"' )"
         [ -z "${tag:-}" ] || [ "$tag" =  'null' ] || [ "$tag" = "$(docker.tag "$base")" ] || base="${base%:*}:$tag"
     fi
+[ -z "${base:-}" ] && trap.die 'Image Parent is undefined'
     echo "$base"
 }
 
@@ -629,20 +671,19 @@ function build.main()
 
     [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
     if [ "${OPTS['user']:-}" ]; then
-        USERNAME="${OPTS['user']}"
-        USER="${OPTS['user']}"
+        export USERNAME="${OPTS['user']}"
+        export USER="${OPTS['user']}"
 
-        _ARTIFACTORY_USER="$(artifactory.USER)"
-        _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
-        _REGISTRY_USER="$(registry.USER)"
-        _REGISTRY_CREDENTIALS=$(credentials.get registry)
+        export _ARTIFACTORY_USER="${OPTS['user']}"
+        export _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
+        export _REGISTRY_USER="${OPTS['user']}"
+        export _REGISTRY_CREDENTIALS=$(credentials.get registry)
     fi
 
 
     local -r logDir="${OPTS['logdir']:-}"
     [ -d "$logDir" ] || mkdir -p "$logDir"
     PROGRESS_LOG="$(readlink -f "${logDir}/progressInfo")"
-
 
     local -i status=0
     if [ "${OPTS['logfile']:-}" ]; then
@@ -681,17 +722,16 @@ function build.module()
     export CONTAINER_GIT_URL="$(git.remoteUrl)"
     export CONTAINER_GIT_REFS="$(git.refs)"
     export CONTAINER_ORIGIN="$(git.origin)"
+    export BASE_TAG="$(build.baseTag)"
 
     # generate fingerprint from all our dependencies
-    local taggedImage="$(eval echo $(jq --compact-output --monochrome-output '.image?' <<< $config))"
-
-    export BASE_TAG="$(build.baseTag "${taggedImage%:*}")"
-    export CONTAINER_PARENT="$(build.getImageParent "$config" 'unique')"
-
-    taggedImage="${taggedImage%:*}:${BASE_TAG}"
-
     local -r dependencies="$(build.dependencyInfo "$config")"
     export CONTAINER_FINGERPRINT="$( sha256sum <<< "$dependencies" | cut -d' ' -f1 )"
+    export CONTAINER_PARENT="$(build.getImageParent "$config" 'unique')"
+
+    local taggedImage="$(eval echo $(jq --compact-output --monochrome-output '.image?' <<< $config))"
+    local baseImage="$(docker.baseImage "$taggedImage")"
+    taggedImage="${baseImage}:${BASE_TAG}"
 
     echo
     echo -n 'building '
@@ -793,6 +833,13 @@ function build.module()
 }
 
 #----------------------------------------------------------------------------------------------
+function build.run()
+{
+    [ "${OPTS['quiet']:-0}" -eq 0 ] && term.elog "$(printf '%s ' "$@")"'\n' 'grey'
+    eval $@ > /dev/null
+}
+
+#----------------------------------------------------------------------------------------------
 function build.updateContainer()
 {
     local -r compose_yaml=${1:?}
@@ -809,7 +856,7 @@ function build.updateContainer()
             local -i doPush=0
             if [ $(printf '%s\n' "${images[@]}" | grep -cs "$taggedImage") -eq 0 ]; then
                 # found image by a different 'name:tag'
-                docker tag "${images[0]}" "$taggedImage"
+                build.run docker tag "${images[0]}" "$taggedImage"
                 doPush=1
             elif [ "${OPTS['push']:-0}" != 0 ] || [ $(docker inspect "$taggedImage" | jq --compact-output --monochrome-output --raw-output '.[].RepoDigests?|length') -eq 0 ]; then
                 doPush=1
@@ -821,7 +868,7 @@ function build.updateContainer()
 
         # check if there is an image in the registry with the correct fingerprint
         build.logger "checking if $actualImage is available in registry"
-        if docker pull "$actualImage" 2>/dev/null; then
+        if build.run docker pull "$actualImage" 2>/dev/null; then
             # downloaded image from registry
             build.changeImage "$taggedImage" "$actualImage"
             build.logImageInfo "$taggedImage" "$compose_yaml"
@@ -829,7 +876,7 @@ function build.updateContainer()
                 build.logger "pushing ${taggedImage} to registry"
                 docker.pushRetained 0 "$taggedImage"
             fi
-            docker rmi "$actualImage"
+            build.run docker rmi "$actualImage"
             return 9
         fi
     fi
@@ -844,16 +891,16 @@ function build.updateContainer()
 
     # rebuild container because no container exists with the correct fingerprint
     build.logger "building $actualImage"
-    docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
+    build.run docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
 
     build.changeImage "$taggedImage" "$actualImage"
-    [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$taggedImage")" ] && docker tag "$actualImage" "$taggedImage"
+    [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$taggedImage")" ] && build.run docker tag "$actualImage" "$taggedImage"
 
     if build.canPush "$revision"; then
         build.logger "pushing ${taggedImage} to registry"
         docker.pushRetained 0 "$taggedImage"
     fi
-    docker rmi "$actualImage"
+    build.run docker rmi "$actualImage"
     return 0
 }
 

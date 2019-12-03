@@ -1112,7 +1112,7 @@ function docker-utilities.main()
         export USERNAME="${OPTS['user']}"
         export USER="${OPTS['user']}"
 
-        export _REGISTRY_USER="$(registry.USER)"
+        export _REGISTRY_USER="${OPTS['user']}"
         export _REGISTRY_CREDENTIALS=$(credentials.get registry)
     fi
  

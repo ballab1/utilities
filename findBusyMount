@@ -19,7 +19,7 @@ mapfile -t PIDS < <(grep  "$ID" 2>/dev/null  $(find /proc/*/mounts 2>/dev/null) 
 [ "${#PIDS[*]}" -eq 0 ] &&  echo "No pids found" && exit 0
 
 printf "PID\tMNTNS\t\t\tNAME\n"
-for PID in "${#PIDS[@]}"; do
+for PID in "${PIDS[@]}"; do
 
     # Ignore self and thread-self
     [ "$PID" = "self" ] &&  continue

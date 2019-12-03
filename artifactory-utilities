@@ -335,11 +335,11 @@ function artifactory-utilities.main()
 
     [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
     if [ "${OPTS['user']:-}" ]; then
-        _ARTIFACTORY_USER="${OPTS['user']}"
-        _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
+        export _ARTIFACTORY_USER="${OPTS['user']}"
+        export _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
         if [ "${OPTS['delete_mode']:-}" = registry ]; then
-            _REGISTRY_USER="${OPTS['user']}"
-            _REGISTRY_CREDENTIALS=$(credentials.get registry)
+            export _REGISTRY_USER="${OPTS['user']}"
+            export _REGISTRY_CREDENTIALS=$(credentials.get registry)
         fi
     fi
 
