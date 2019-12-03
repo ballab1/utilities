@@ -23,6 +23,7 @@ import sys
 import tempfile
 
 
+
 def usage():
     """
         Description:
@@ -103,8 +104,9 @@ class CbfDownload:
     #    ['sha256_3.4.10']="7f7f5414e044ac11fee2a1e0bc225469f51fb0cdf821e67df762a43098223f27"
     #    ['sha256_3.4.13']="7ced798e41d2027784b8fd55c908605ad5bd94a742d5dab2506be8f94770594d"
 
-    def __init__(self, lines):
+    def __init__(self, lines, args):
         self.lines = lines
+        self.credentials = args.credentials
         self.versions = []
         self.dict = {}
         self.name = None
@@ -151,10 +153,7 @@ class CbfDownload:
 #            self.insert_at = -1
             sys.exit(1)
 
-    def getUrl(self, version, versions):
-        url = self.remote_url
-        if len(url) == 0:
-            url = self.url
+    def actualUrl(self, url, version, versions):
         vstring = '${' + self.name + "['version']}"
         url = url.replace(vstring, version)
         for key,val in self.dict.iteritems():
@@ -162,7 +161,11 @@ class CbfDownload:
         return versions.check(url)
 
     def checksum(self, version, versions):
-        url = self.getUrl(version, versions)
+        url = self.remote_url
+        if len(url) == 0:
+            url = self.url
+        url = self.actualUrl(url, version, versions)
+
         print 'downloading ' + url
         dlfile = tempfile.mktemp()
         try:
@@ -171,7 +174,8 @@ class CbfDownload:
             if status == 0:
                 sha256 = hashlib.sha256(open(dlfile, mode='rb').read())
                 if self.remote_url:
-                    self.upload(dlfile)
+                    url = self.actualUrl(self.url, version, versions)
+                    self.upload(dlfile, url)
                 os.remove(dlfile)
                 newline = '{}[\'sha256_{}\']="{}"\n'.format(self.name, version, sha256.hexdigest())
                 return newline
@@ -179,15 +183,14 @@ class CbfDownload:
             print 'failed to download from: ' + url
             sys.exit(1)
 
-    def upload(self, dlfile):
-        credentials = 'user:pwd'
-        md5Value = ''
-        sha1Value = ''
-        url = self.url
-#        cmd = 'curl --request PUT --location-trusted --silent --user {} --header "X-Checksum-Md5: {}" --header "X-Checksum-Sha1: {}" --upload-file "{}" "{}"'.format(credentials, md5Value, sha1Value, dlfile, url)
-#        status = os.system(cmd)
-#        if status != 0:
-#            print 'failed to upload to: ' + url
+    def upload(self, dlfile, url):
+        md5Value = hashlib.md5(open(dlfile,'rb').read()).hexdigest()
+        sha1Value = hashlib.sha1(open(dlfile,'rb').read()).hexdigest()
+        cmd = 'curl --request PUT --location-trusted --silent --user {} --header "X-Checksum-Md5: {}" --header "X-Checksum-Sha1: {}" --upload-file "{}" "{}"'.format(self.credentials, md5Value, sha1Value, dlfile, url)
+        status = os.system(cmd)
+        if status != 0:
+            print 'failed to upload {} to: {}'.format(dlfile, url)
+        print ''
         return
 
 
@@ -271,6 +274,7 @@ class CbfDownloadFile:
         Constructor
         """
         self.download = args.download
+        self.credentials = args.credentials
         version = args.version
         version = version.strip('\"')
         version = version.strip("\'")
@@ -279,7 +283,7 @@ class CbfDownloadFile:
         with open(args.download) as f:
             for line in f:
                 lines.append(line)
-        cbf_file = CbfDownload(lines)
+        cbf_file = CbfDownload(lines, args)
         self.cbf_file = cbf_file
         self.vstring = cbf_file.version
 
@@ -319,11 +323,15 @@ class GetArgs:
         p.add_argument('-d', '--download', required=False, help='Name of file in "build/actions_folder/04.downloads" to use.')
         p.add_argument('-p', '--project', required=True, help='Project directory. If not specified, defaults to current directory')
         p.add_argument('-v', '--version', required=True, help='version to add to download file')
+        p.add_argument('-u', '--user', required=False, help='username')
+        p.add_argument('-c', '--credentials', required=False, help='file containing user=password paries')
 
         args = p.parse_args()
         self.project = args.project
         self.download = args.download
         self.version = args.version
+        self.user = args.user
+        self.credentialsFile = args.credentials
 
     def validate_options(self):
         """
@@ -362,6 +370,16 @@ class GetArgs:
             if self.download not in file_names:
                 raise ValueError(self.download + ' does not exist in project')
         self.download = os.path.join(downloads_dir, os.path.basename(self.download))
+
+        self.credentials = None
+        if self.user and self.credentialsFile:
+            if not os.path.isfile(self.credentialsFile):
+                raise ValueError('credentials file "{}" does not exist'.format(self.credentials))
+
+            with open(self.credentialsFile) as f:
+                for line in f:
+                    if line.startswith(self.user):
+                        self.credentials = line.replace('=', ':').rstrip()
 
 
 

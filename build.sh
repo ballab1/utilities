@@ -630,9 +630,9 @@ function build.main()
         USER="${OPTS['user']}"
 
         _ARTIFACTORY_USER="$(artifactory.USER)"
-        _ARTIFACTORY_CREDENTIALS=$(custom.credentials artifactory)
+        _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
         _REGISTRY_USER="$(registry.USER)"
-        _REGISTRY_CREDENTIALS=$(custom.credentials registry)
+        _REGISTRY_CREDENTIALS=$(credentials.get registry)
     fi
 
 
