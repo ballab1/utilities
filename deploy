@@ -13,7 +13,6 @@ Usage:
               | [ --down ]
               | [ --init ]
               | [ --latest ]
-              | [ --promote <branch> ]
               | [ --tag <image_tag> ]
 
     Common options:
@@ -24,10 +23,6 @@ Usage:
         -d --down              stop services defined by 'docker-compose.yml'
         -i --init              only initialize the environment
         -l --latest            update to latest versions of images rather than using those defined in docker-compose.yml
-        -p --promote <branch>  promote images in docker repo, from current <branch> to target <branch>
-                               this retags the image with the target <branch>,
-                                   on protected branches {eg: master or integration } the ':latest' tag is used
-                               after a pull request has completed the new images should be pushed to the registry.
         -t --tag <image_tag>   use specific set of image tags
 
 EOF
@@ -125,7 +120,7 @@ function deploy.clean()
 {
     local network
     # check networks to determine if there are running containers
-    local -a networks=( $(lib.yamlToJson docker-compose.yml | jq -r '.networks|try .[].name')
+    local -a networks=( $(lib.yamlToJson docker-compose.yml | jq -r '.networks|try .[].name' ||:)
                         "$(basename "${WORKSPACE_DIR}")_default"
                        )
     for network in "${networks[@]}"; do
@@ -142,8 +137,8 @@ function deploy.clean()
 function deploy.cmdLineArgs()
 {
     # Parse command-line options into above variable
-    local -r longOpts='help,Help,HELP,base:,clean,debug,dev,down,init,latest,nodown,promote:,tag:'
-    local -r shortOpts='Hhb:cdilnp:t:'
+    local -r longOpts='help,Help,HELP,base:,clean,debug,dev,down,init,latest,nodown,tag:'
+    local -r shortOpts='Hhb:cdilnt:'
     local -r options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || deploy.usage $?
     eval set -- "$options"
 
@@ -156,12 +151,11 @@ function deploy.cmdLineArgs()
             -b|--b|--base)        opts['base']="$2";        shift 2;;
             -c|--c|--clean)       opts['clean']=1;          shift;;
                    --debug)       opts['debug']=1;          shift;;
-                   --dev)         opts['dev']=1;          shift;;
+                   --dev)         opts['dev']=1;            shift;;
             -d|--d|--down)        opts['down']=1;           shift;;
             -i|--i|--init)        opts['init']=1;           shift;;
             -l|--l|--latest)      opts['latest']='HEAD';    shift;;
             -n|--n|--nodown*)     opts['local']=1;          shift;;
-            -p|--p|--promote)     opts['promote']=$2;       shift 2;;
             -t|--t|--tag)         opts['container_tag']=$2; shift 2;;
             --)                   shift; break;;
         esac
@@ -170,16 +164,16 @@ function deploy.cmdLineArgs()
 
     # set default value for 
     local tag="${opts['container_tag']:-}"
-    if [ -z "${tag:-}" ] && [ -z "${opts['local']:-}" ]; then
+    if [ -z "${tag:-}" ] && [ -z "${opts['latest']:-}" ]; then
         if [ "${CONTAINER_TAG:-}" ]; then
             tag="$CONTAINER_TAG"
-        else
+        elif [ "${opts['latest']:-}" ]; then
             local default
-            [ "${opts['latest']:-}" == 'HEAD' ] && default='latest'
+            [ "${opts['latest']}" == 'HEAD' ] && default='latest'
             tag="$(deploy.containerTag "${default:-}")"
         fi
     fi
-    opts['container_tag']="${tag//\//-}"   # replace '/' with '-'
+    [ -z "${tag:-}" ] || opts['container_tag']="${tag//\//-}"   # replace '/' with '-'
 
 
     # show args
@@ -331,6 +325,7 @@ function deploy.createVolumeFolders()
 function deploy.docker_compose()
 {
     local -i status
+    # execute in subshell so as to isolate 'CONTAINER_TAG' variable used in docker-compose.yml
     (
         [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && export CONTAINER_TAG="${OPTS['container_tag']}"
         docker-compose --file "$WORKSPACE_YAML" "$@"
@@ -585,7 +580,7 @@ function deploy.refreshContainers()
     # make sure we start the correct versions
     if [ "${OPTS['dev']:-}" ]; then
         return 0
-    elif [ "${OPTS['container_tag']:-}" = 'latest' ]; then
+    elif [ "${OPTS['latest']:-}" = 'HEAD' ]; then
         term.log '\nINFO: updating containers to latest versions\n' 'white'
     else
         term.log '\n'"INFO: using container fingerprints defined in docker-compose.yml"'\n' 'white'
@@ -690,24 +685,6 @@ function deploy.restartContainers()
 }
 
 #----------------------------------------------------------------------------------------------
-function deploy.reTagImages()
-{
-    local -r dc_yaml=${1:?}
-
-    local image retaggedImage
-    while read -r image; do
-        image="$(eval echo $image)"
-        if [ $(docker images | grep -cs "$image") -gt 0 ]; then
-            retaggedImage="${image%=*}"
-            term.log "renaming $image to ${retaggedImage}:${OPTS['container_tag']}"'\n' 'warn'
-            docker tag "$image" "${retaggedImage}:${OPTS['container_tag']}"
-        else
-            term.log "no images matching $image"'\n' 'warn'
-        fi
-    done < <(grep -E '^\s+image:\s' "$dc_yaml" | sed -E -e 's|^\s+image:\s+||' )
-}
-
-#----------------------------------------------------------------------------------------------
 function deploy.showInitializationBanner()
 {
     term.log '******************************************************************************\n' 'white'
@@ -716,30 +693,6 @@ function deploy.showInitializationBanner()
     term.log '*                                                                            *\n' 'white'
     term.log '******************************************************************************\n' 'white'
     export INITIALIZE_COMPLETE='true'
-}
-
-#----------------------------------------------------------------------------------------------
-function deploy.toProduction()
-{
-    local -r dc_yaml=${1:?}
-
-    #  verify repo is not dirty
-    #  verify latest is running
-    #  verify branch is not protected
-
-    #  retag images
-    #  push images to registry
-    #  update workspace docker-compose
-    #  update deploy docker-compose
-
-    #  update main docker-compose.yml if this is for promotion
-    if [ "${OPTS['container_tag']:-}" != 'latest' ]; then
-        deploy.reTagImages "$dc_yaml"
-        # Updating reference docker-compose.yml
-        deploy.updateDockerCompose 'production'
-        # now update docker registry
-        deploy.pushImages "$dc_yaml"
-    fi
 }
 
 #----------------------------------------------------------------------------------------------
@@ -974,8 +927,11 @@ appenv.loader 'deploy.main'
 
 
 declare -i status=0
-declare -a args=( $( deploy.cmdLineArgs "$@" ) ) && status=$? || status=$?
+declare -a args
+args=( $( deploy.cmdLineArgs "$@" ) ) && status=$? || status=$?
 [ $status -ne 0 ] || deploy.main "${args[@]:-}" && status=$? || status=$?
+
 declare -i elapsed=$(( $(date '+%s') - start ))
 [ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
+
 exit $status 

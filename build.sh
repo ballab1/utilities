@@ -56,7 +56,7 @@ function build.all()
     if [ "${OPTS['os']:-}" ]; then
         OSes=( "${OPTS['os']}" )
     else
-        mapfile -t OSes < <(lib.yamlToJson "${OPTS['base']}//build.yml" | jq -r 'try .container_os[]')
+        mapfile -t OSes < <(lib.yamlToJson "${OPTS['base']}//build.yml" | jq -r 'try .container_os[]' |:)
     fi
 
     local cbf_version="${CBF_VERSION:-}"
@@ -79,9 +79,10 @@ function build.all()
         [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
     fi
 
+    echo "Operating Systems to build:        $(IFS=' ' echo ${OSes[*]})"
     echo "Container Build Framework version: $cbf_version"
-    [ "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && echo "kafka servers:  $KAFKA_BOOTSTRAP_SERVERS"
-    [ "${KAFKA_PRODUCER:-}" ] && echo "kafka_producer: $KAFKA_PRODUCER"
+    [ "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && echo "kafka servers:                     $KAFKA_BOOTSTRAP_SERVERS"
+    [ "${KAFKA_PRODUCER:-}" ] && echo "kafka_producer:                    $KAFKA_PRODUCER"
     echo
 
     local -i status=0
@@ -197,7 +198,7 @@ function build.changeImage()
         docker tag "$actualImage" "$taggedImage"
 }
 
-#---------------------------------------------------------------------------------------------- #----------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------
 function build.cmdLineArgs()
 {
     # Parse command-line options into above variable
@@ -282,9 +283,8 @@ function build.containersForOS()
 
     echo
     echo -n 'building '
-    echo -en '\e[94m'
-    echo -n "$git_url"
-    echo -e '\e[0m'
+    term.log "$git_url" 'lt_blue'
+    echo
     echo "    container OS:   $containerOS"
     echo "    refs:           (${git_refs})"
     echo "    commitId:       $git_commit"
@@ -296,24 +296,29 @@ function build.containersForOS()
     [ -e "$versions" ] || trap.die "Unrecognized CONTAINER_OS: $containerOS"
     lib.exportFileVars "$versions" 'export' 'true'
 
-
-    exec 3>&1  # create special stdout
-
     local -i status=0
-    while read -r dir; do
-        [ $status -eq 0 ] || continue
-        if [ ! -d "$dir" ]; then
-            echo "invalid project directory: $dir"
-            continue
-        fi
+    local -a modules
+    modules=( $(build.verifyModules "$containerOS" "$(printf '%s\n' "${requestModules[@]}")") ) && status=$? || status=$?
+    [ ${OPTS['debug']:-0} -gt 0 ] && term.elog "    Building modules:  $(IFS=' ' ${modules[*]:-})"
 
-        pushd "$dir" >/dev/null
-        build.module "$containerOS" && status=$? || status=$?
-        popd >/dev/null
-        [ $status -ne 0 ] && break
-    done< <( build.verifyModules "$containerOS" $(printf '%s\n' "${requestModules[@]}") && status=$? || status=$?)
+    if [ $status -eq 0 ] && [ "${#modules[@]}" -gt 0 ]; then
+        exec 3>&1  # create special stdout
 
-    exec 3>&-   # close special stdout
+        for dir in "${modules[@]:-}"; do
+            [ $status -eq 0 ] || continue
+            if [ ! -d "$dir" ]; then
+                echo "invalid project directory: $dir"
+                continue
+            fi
+
+            pushd "$dir" >/dev/null
+            build.module "$containerOS" && status=$? || status=$?
+            popd >/dev/null
+            [ $status -ne 0 ] && break
+        done
+
+        exec 3>&-   # close special stdout
+    fi
 
     # delete empty logs
     find "$logDir" -type f -size 0 -delete
@@ -451,7 +456,8 @@ function build.getImageParent()
         # no immediate parent found. Need to locate best match from another branch, then resort to 'latest'
 
         # get potential parents
-        local -a candidates=( $(lib.yamlToJson "$BUILD_YAML" | jq -r 'try .parent_branches[]') )
+        local -a candidates
+        mapfile -t candidates < <(lib.yamlToJson "$BUILD_YAML" | jq -r 'try .parent_branches[]' ||:)
         [ ${#candidates[*]} -gt 0 ] || return 0
 
         # get actual images from registry
@@ -843,7 +849,7 @@ function build.verifyModules()
     [ "${#requestedModules[*]}" -gt 0 ] || requestedModules=()
 
 
-    local -a modules=( $(grep -Ev '^\s*#' "$VERSIONS_DIRECTORY/${containerOS}.modules") )
+    local -a modules=( $(grep -Ev '^\s*#' "$VERSIONS_DIRECTORY/${containerOS}.modules" ||:) )
     local retval=1
     for defMod in "${modules[@]}"; do
         [ -d "$defMod" ] && [ -e "${defMod}/docker-compose.yml" ] || continue
@@ -864,6 +870,10 @@ function build.verifyModules()
             echo "$defMod"
         done
     done
+
+    [[ $retval -eq 1 && ${OPTS['debug']:-0} -gt 0 && "${#requestedModules[*]}" -gt 0 ]] \
+        && term.log "${containerOS} does not define any of '$(IFS=' ' echo ${requestedModules[*]})'"'\n'
+
     return "$retval"
 }
 
@@ -887,8 +897,11 @@ source "$loader"
 appenv.loader 'build.main'
 
 declare -i status=0
-declare -a args=( $( build.cmdLineArgs "$@" ) ) && status=$? || status=$?
+declare -a args
+args=( $( build.cmdLineArgs "$@" ) ) && status=$? || status=$?
 [ $status -ne 0 ] || build.main "${args[@]:-}" && status=$? || status=$?
+
 declare -i elapsed=$(( $(date '+%s') - start ))
 [ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
+
 exit $status

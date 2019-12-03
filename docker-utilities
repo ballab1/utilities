@@ -876,7 +876,7 @@ function docker-utilities.deleteTagInSpecificRepo()
 {
     local -r ref=${1:?}
     shift
-    local -ra tagsToDelete=( $@ )
+    local -ra tagsToDelete=( "$@" )
     if [ "${#tagsToDelete[*]}" -eq 0 ]; then
         term.elog "no tags defined for $ref"'\n' 'red'
         return 0
@@ -975,7 +975,7 @@ function docker-utilities.deleteTag()
         tagsToDelete=()
         for x in $(jq -r '.tags[]' <<< "$json"); do
             [[ $x =~ $tag ]] || continue
-            tagsToDelete+=( $x )
+            tagsToDelete+=( "$x" )
         done
         [ "${#tagsToDelete[*]}" -le 0 ] && continue
 
@@ -1120,7 +1120,7 @@ function docker-utilities.main()
 function docker-utilities.manifests()
 {
     local -r image="${1:?}"
-#    local -ra images=( $@ )
+#    local -ra images=( "$@" )
 
     echo '"manifest":' >&2
 
@@ -1137,7 +1137,7 @@ function docker-utilities.markImageForDeletion()
     local -A digests
 
     docker-utilities.digests 'json' "$repo" 'notimes'
-    eval "digests=( $(jq -r '.[]|.tags|=join(",")|"[\(.digest)]=\(.tags)"' <<< "$json") )"
+    eval "digests=( $(jq -r '.[]|.tags|=join(",")|"[\(.digest)]=\(.tags)"' <<< "$json" ||:) )"
     [ "${#digests[*]}" -le 0 ] && return 0
 
     for digest in "${!digests[@]}"; do
@@ -1155,7 +1155,7 @@ function docker-utilities.pushImage()
     local image
     local -a images=()
     for image in "$@"; do
-        [ "${image:-}" ] && images+=( $(registry.SERVER)$image )
+        [ "${image:-}" ] && images+=( "$(registry.SERVER)$image" )
     done
     docker.pushRetained ${OPTS['fingerprint']:-} "${images[@]}" && status=$? || status=$?
     return $status
@@ -1265,7 +1265,7 @@ function docker-utilities.report()
 function docker-utilities.reportCatalogAsJson()
 {
     local -a catalog
-    mapfile -t catalog < <(docker-utilities.filterCatalog "$@") # ignore errors
+    mapfile -t catalog < <(docker-utilities.filterCatalog "$@" ||:) # ignore errors
 #ssh ubuntu-s2 df /dev/sdb1 | tail -1 | awk '{print $5 " used, " $3/1024/1024 " GB  available"}' > storage.txt
 
     if [ "${#catalog[*]}" -eq 0 ]; then
@@ -1292,7 +1292,7 @@ function docker-utilities.reportCatalogAsJson()
 function docker-utilities.reportTagSummary()
 {
     local -a catalog
-    mapfile -t catalog < <(docker-utilities.filterCatalog "$@") # ignore errors
+    mapfile -t catalog < <(docker-utilities.filterCatalog "$@" ||:) # ignore errors
     if [ "${#catalog[*]}" -gt 0 ]; then
         local -i fingerprints=0
         local -i digests=0
@@ -1358,7 +1358,7 @@ function docker-utilities.retagImages()
     [ ! -e "$yaml" ] && trap.die "Unable to locate $yaml"'\n'
 
     local -a images
-    mapfile -f images < <(lib.yamlToJson "$yaml" | jq -r '.services[].image')
+    mapfile -f images < <(lib.yamlToJson "$yaml" | jq -r '.services[].image' ||:)
     if [ "${#images[*]}" -gt 0 ]; then
         local image target
         for image in "${images[@]}"; do
@@ -1407,7 +1407,7 @@ function docker-utilities.show()
             # show image report
             local -a images
             echo >&2
-            mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}")
+            mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" ||:)
             if [ ${#images[*]} -gt 1 ]; then
                 echo -e "\e[97m${images[0]}\e[0m" >&2
                 unset images[0]
@@ -1424,7 +1424,7 @@ function docker-utilities.show()
             # show networks
             local -a hosts
             local -a networks
-            mapfile -t networks < <(docker network ls)
+            mapfile -t networks < <(docker network ls ||:)
             if [ ${#networks[*]} -gt 1 ]; then
                 echo -e "\e[97m${networks[0]}\e[0m" >&2
                 unset "networks[0]"
@@ -1432,7 +1432,7 @@ function docker-utilities.show()
                     echo $network 
                     mapfile -t hosts < <(docker network inspect "$(cut -d ' ' -f 1 <<< "$network")" | \
                                          jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
-                                         sort -t "." -k 4g) && status=$? || status=$?
+                                         sort -t "." -k 4g ||:)
                     [ "${#hosts[*]}" -gt 0 ] || continue
                     printf '    %s\n' "${hosts[@]}"
                 done
@@ -1443,7 +1443,7 @@ function docker-utilities.show()
             # show processes
             local -a containers
             echo >&2
-            mapfile -t containers < <(docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}")
+            mapfile -t containers < <(docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}" ||:)
             if [ ${#containers[*]} -gt 1 ]; then
                 echo -e "\e[97m${containers[0]}\e[0m" >&2
                 unset "containers[0]"
@@ -1563,8 +1563,11 @@ appenv.loader 'docker-utilities.main'
 
 
 declare -i status=0
-declare -a args=( $( docker-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
+declare -a args
+args=( $( docker-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
 [ $status -ne 0 ] || docker-utilities.main "${args[@]:-}" && status=$? || status=$?
+
 declare -i elapsed=$(( $(date '+%s') - start ))
 [ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
+
 exit $status
