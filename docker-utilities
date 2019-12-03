@@ -1070,11 +1070,11 @@ function docker-utilities.main()
 
     [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
     if [ "${OPTS['user']:-}" ]; then
-        USERNAME="${OPTS['user']}"
-        USER="${OPTS['user']}"
+        export USERNAME="${OPTS['user']}"
+        export USER="${OPTS['user']}"
 
-        _REGISTRY_USER="$(registry.USER)"
-        _REGISTRY_CREDENTIALS=$(custom.credentials registry)
+        export _REGISTRY_USER="$(registry.USER)"
+        export _REGISTRY_CREDENTIALS=$(custom.credentials registry)
     fi
  
 
@@ -1406,7 +1406,7 @@ function docker-utilities.show()
         images)
             # show image report
             local -a images
-            echo
+            echo >&2
             mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}")
             if [ ${#images[*]} -gt 1 ]; then
                 echo -e "\e[97m${images[0]}\e[0m" >&2
@@ -1417,7 +1417,6 @@ function docker-utilities.show()
                 else
                     printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
                 fi
-                echo
             fi
             ;;
 
@@ -1430,7 +1429,7 @@ function docker-utilities.show()
                 echo -e "\e[97m${networks[0]}\e[0m" >&2
                 unset "networks[0]"
                 for network in "${networks[@]}"; do
-                    echo $network
+                    echo $network 
                     mapfile -t hosts < <(docker network inspect "$(cut -d ' ' -f 1 <<< "$network")" | \
                                          jq -r ".[].Containers|.[]|[.IPv4Address + \" : \" + .Name]|.[]" | \
                                          sort -t "." -k 4g) && status=$? || status=$?
@@ -1443,7 +1442,7 @@ function docker-utilities.show()
         processes)
             # show processes
             local -a containers
-            echo
+            echo >&2
             mapfile -t containers < <(docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}")
             if [ ${#containers[*]} -gt 1 ]; then
                 echo -e "\e[97m${containers[0]}\e[0m" >&2
@@ -1466,6 +1465,7 @@ function docker-utilities.show()
             jq -r 'keys[]?' <<< "$jsonConfig" && status=$? || status=$?
             ;;
     esac
+    echo >&2
     return $status
 }
 
