@@ -43,8 +43,10 @@ function build.all()
 
     cd "${OPTS['base']}" || trap.die "Invalid base directory specified: ${OPTS['base']}"
 
-    BUILD_YAML="${OPTS['base']}/build.yml"
-    [ -e "$BUILD_YAML" ] || trap.die "Unable to local build configuration file: ${BUILD_YAML}"
+    local build_yaml="${OPTS['base']}/build.yml"
+    [ -e "$build_yaml" ] || trap.die "Unable to local build configuration file: ${build_yaml}"
+    BUILD_YAML="$(lib.yamlToJson "$build_yaml")"
+
 
     VERSIONS_DIRECTORY="${OPTS['base']}/versions"
     local -a files=()
@@ -56,7 +58,7 @@ function build.all()
     if [ "${OPTS['os']:-}" ]; then
         OSes=( "${OPTS['os']}" )
     else
-        mapfile -t OSes < <(lib.yamlToJson "${OPTS['base']}//build.yml" | jq -r 'try .container_os[]' |:)
+        mapfile -t OSes < <(jq -r 'try .container_os[]' <<< "$BUILD_YAML" ||:)
     fi
 
     local cbf_version="${CBF_VERSION:-}"
@@ -74,12 +76,12 @@ function build.all()
     [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && term.elog 'Unable to locate KAFKA_PRODUCER script. No metrics gathered\n' 'yellow'
     if [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ]; then
         local -i status
-        KAFKA_BOOTSTRAP_SERVERS="$(lib.yamlToJson "$BUILD_YAML" | jq -re 'try .environment.KAFKA_BOOTSTRAP_SERVERS')" && status=$? || status=$?
+        KAFKA_BOOTSTRAP_SERVERS="$(jq -re 'try .environment.KAFKA_BOOTSTRAP_SERVERS' <<< "$BUILD_YAML")" && status=$? || status=$?
         [ $status -ne 0 ] && unset KAFKA_BOOTSTRAP_SERVERS
         [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
     fi
 
-    echo "Operating Systems to build:        $(IFS=' ' echo ${OSes[*]})"
+    echo "Operating Systems to build:        $(IFS=' ' echo ${OSes[*]:-})"
     echo "Container Build Framework version: $cbf_version"
     [ "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && echo "kafka servers:                     $KAFKA_BOOTSTRAP_SERVERS"
     [ "${KAFKA_PRODUCER:-}" ] && echo "kafka_producer:                    $KAFKA_PRODUCER"
@@ -285,10 +287,10 @@ function build.containersForOS()
     echo -n 'building '
     term.log "$git_url" 'lt_blue'
     echo
-    echo "    container OS:   $containerOS"
-    echo "    refs:           (${git_refs})"
-    echo "    commitId:       $git_commit"
-    echo "    revision:       $origin"
+    echo "    container OS:      $containerOS"
+    echo "    refs:              (${git_refs})"
+    echo "    commitId:          $git_commit"
+    echo "    revision:          $origin"
 
 
     # get versions  (do not redefine any that are alresady in ENV)
@@ -298,10 +300,17 @@ function build.containersForOS()
 
     local -i status=0
     local -a modules
-    modules=( $(build.verifyModules "$containerOS" "$(printf '%s\n' "${requestModules[@]}")") ) && status=$? || status=$?
-    [ ${OPTS['debug']:-0} -gt 0 ] && term.elog "    Building modules:  $(IFS=' ' ${modules[*]:-})"
+    modules=( $(build.verifyModules "$containerOS" $(printf '%s\n' "${requestModules[@]}")) ) && status=$? || status=$?
+    if [ $status -ne 0 ]; then
+        term.elog "    Failed to determine modules to build for ${containerOS}"'\n'
+        return $status
 
-    if [ $status -eq 0 ] && [ "${#modules[@]}" -gt 0 ]; then
+    elif [ "${#modules[@]}" -eq 0 ]; then
+        term.elog "    No modules to build for ${containerOS}"'\n'
+        return $status
+
+    else
+        [ ${OPTS['debug']:-0} -gt 0 ] && term.elog "    Building modules:  $(IFS=' ' echo ${modules[*]:-})"'\n'
         exec 3>&1  # create special stdout
 
         for dir in "${modules[@]:-}"; do
@@ -457,7 +466,7 @@ function build.getImageParent()
 
         # get potential parents
         local -a candidates
-        mapfile -t candidates < <(lib.yamlToJson "$BUILD_YAML" | jq -r 'try .parent_branches[]' ||:)
+        mapfile -t candidates < <(jq -r 'try .parent_branches[]' <<< "$BUILD_YAML" ||:)
         [ ${#candidates[*]} -gt 0 ] || return 0
 
         # get actual images from registry
@@ -509,14 +518,14 @@ function build.logInfo()
 {
     local log_time=${1:-}
 
-    [ "$log_time" ] && echo "    build time:     ${CONTAINER_BUILD_TIME:-}"
-    echo "    refs:           ${CONTAINER_GIT_REFS:-}"
-    echo "    commitId:       ${CONTAINER_GIT_COMMIT:-}"
-    echo "    repo:           ${CONTAINER_GIT_URL:-}"
-    echo "    fingerprint:    ${CONTAINER_FINGERPRINT:-}"
-    echo "    revision:       ${CONTAINER_ORIGIN:-}"
-    echo "    parent:         ${CONTAINER_PARENT:-}"
-    echo "    BASE_TAG:       ${BASE_TAG:-}"
+    [ "$log_time" ] && echo "    build time:        ${CONTAINER_BUILD_TIME:-}"
+    echo "    refs:              ${CONTAINER_GIT_REFS:-}"
+    echo "    commitId:          ${CONTAINER_GIT_COMMIT:-}"
+    echo "    repo:              ${CONTAINER_GIT_URL:-}"
+    echo "    fingerprint:       ${CONTAINER_FINGERPRINT:-}"
+    echo "    revision:          ${CONTAINER_ORIGIN:-}"
+    echo "    parent:            ${CONTAINER_PARENT:-}"
+    echo "    BASE_TAG:          ${BASE_TAG:-}"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -601,6 +610,7 @@ function build.logToKafka()
 #----------------------------------------------------------------------------------------------
 function build.main()
 {
+    local BUILD_YAML
     local -A OPTS
     eval "OPTS=( ${1:?} )"
     readonly opts
@@ -846,14 +856,12 @@ function build.verifyModules()
     local -r containerOS=${1:?}
     shift
     local -a requestedModules=( "$@" )
-    [ "${#requestedModules[*]}" -gt 0 ] || requestedModules=()
-
 
     local -a modules=( $(grep -Ev '^\s*#' "$VERSIONS_DIRECTORY/${containerOS}.modules" ||:) )
     local retval=1
     for defMod in "${modules[@]}"; do
         [ -d "$defMod" ] && [ -e "${defMod}/docker-compose.yml" ] || continue
-        [ $(grep -cEs "^$defMod\s*$" <<< "$(lib.yamlToJson "$BUILD_YAML" | jq -r 'try .skip_builds[]')") -gt 0 ] && continue
+        [ $(grep -cEs "^$defMod\s*$" <<< "$(jq -r 'try .skip_builds[]' <<< "$BUILD_YAML" ||:)") -gt 0 ] && continue
 
         local definedOS=$(grep -E '^#\s+containerOS:\s+' "${defMod}/docker-compose.yml" ||:)
         [ "${definedOS:-}" ] && [ $(grep -cs "$containerOS" <<< "$definedOS") -eq 0 ] && continue
@@ -873,7 +881,6 @@ function build.verifyModules()
 
     [[ $retval -eq 1 && ${OPTS['debug']:-0} -gt 0 && "${#requestedModules[*]}" -gt 0 ]] \
         && term.log "${containerOS} does not define any of '$(IFS=' ' echo ${requestedModules[*]})'"'\n'
-
     return "$retval"
 }
 
