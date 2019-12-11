@@ -230,22 +230,28 @@ function jira-utilities.cmdLineArgs()
 
     [ -z "${opts['cmd']:-}" ] && jira-utilities.helpFor_general 1
 
+
     # Parse command-line options
-    options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || jira-utilities.usage '' $?
-    eval set -- "$options"
+    if [ "${longOpts:-}" ] && [ "${shortOpts:-}" ]; then
+        options=$(getopt --longoptions "$longOpts" --options "$shortOpts" --name "$PROGNAME" -- "$@") || docker-utilities.usage '' $?
+        eval set -- "$options"
 
-    while [ "${1:-}" ]; do
-        case "${1,,}" in
-            -o|--out)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
-                opts['log']="$2"
-                shift 2;;
 
-            --)
-                shift
-                break;;
-        esac
-    done
+        while [ "${1:-}" ]; do
+            case "${1,,}" in
+                -o|--out)
+                    [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                    opts['log']="$2"
+                    shift 2
+                    ;;
+
+                --)
+                    shift
+                    break
+                    ;;
+            esac
+        done
+    fi
 
     # show args
     if [ "${opts['debug']:-0}" -gt 0 ]; then
@@ -288,6 +294,7 @@ function jira-utilities.main()
         export _JIRA_USER="${OPTS['user']}"
         export _JIRA_CREDENTIALS=$(credentials.get jira)
     fi
+    export DEBUG=${OPTS['debug']:-0}
 
     {
         echo
@@ -412,7 +419,8 @@ declare -i start=$(date '+%s')
 declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
-declare -r loader="$PROGRAM_DIR/appenv.bashlib"
+
+declare -r loader="${PROGRAM_DIR}/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries' >&2
     exit 1

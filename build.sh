@@ -25,7 +25,7 @@ Usage:
         -o --os <osName>                      specify OS <osName> that will be used. Default all OS types defined
         -p --push                             always push image to regitry
            --no-push                          never push image to registry
-           --user <username>                  Defaults to \${USERNAME:-\$USER}
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}
            --credentials <credentials_file>   File container key/value pairs for user=pwd
 
     build one or more component repos
@@ -44,7 +44,7 @@ function build.all()
     cd "${OPTS['base']}" || trap.die "Invalid base directory specified: ${OPTS['base']}"
 
     local build_yaml="${OPTS['base']}/build.yml"
-    [ -e "$build_yaml" ] || trap.die "Unable to local build configuration file: ${build_yaml}"
+    [ -e "$build_yaml" ] || trap.die "Unable to locate build configuration file: ${build_yaml}"
     BUILD_YAML="$(lib.yamlToJson "$build_yaml")"
 
 
@@ -70,16 +70,20 @@ function build.all()
         fi
     fi
 
+    # import our setup configuration
+    local key val
+    while read -r key; do
+        val="$(jq --compact-output --monochrome-output --raw-output '.environment.'"$key" <<< "$BUILD_YAML")"
+        eval export $key="$val"
+        readonly $key
+    done < <(jq --compact-output --monochrome-output --raw-output '.environment|keys[]' <<< "$BUILD_YAML")
+
+
     echo
     KAFKA_PRODUCER="$(command -v kafkaProducer.py)"
     [ "${KAFKA_PRODUCER:-}" ] || KAFKA_PRODUCER="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kafkaProducer.py"
     [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && term.elog 'Unable to locate KAFKA_PRODUCER script. No metrics gathered\n' 'yellow'
-    if [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ]; then
-        local -i status
-        KAFKA_BOOTSTRAP_SERVERS="$(jq --compact-output --exit-status --monochrome-output --raw-output 'try .environment.KAFKA_BOOTSTRAP_SERVERS' <<< "$BUILD_YAML")" && status=$? || status=$?
-        [ $status -ne 0 ] && unset KAFKA_BOOTSTRAP_SERVERS
-        [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
-    fi
+    [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
 
     echo "Operating Systems to build:        $(IFS=' ' echo ${OSes[*]:-})"
     echo "Container Build Framework version: $cbf_version"
@@ -363,12 +367,13 @@ function build.containersForOS()
                 continue
             fi
 
+            [ "${OPTS['conlog']:-0}" -eq 0 ] && (:> "$PROGRESS_LOG")
+
             pushd "$dir" >/dev/null
             build.module "$containerOS" && status=$? || status=$?
             popd >/dev/null
             [ $status -ne 0 ] && break
         done
-
         exec 3>&-   # close special stdout
     fi
 
@@ -487,55 +492,29 @@ function build.dockerCompose()
 }
 
 #----------------------------------------------------------------------------------------------
-function build.findIdsWithFingerprint()
-{
-    local -r fingerprint=${1:?}
-
-    curl --silent \
-         --unix-socket /var/run/docker.sock http://localhost/images/json \
-         | jq --compact-output --monochrome-output --raw-output ".[]|select(.Labels.\"container.fingerprint\" == \"$fingerprint\").RepoTags[]?"
-}
-
-#----------------------------------------------------------------------------------------------
 function build.getImageParent()
 {
     local -r config=${1:?}
     local -r unique=${2:-}
 
     local base=$(eval echo $( jq --compact-output --monochrome-output '.build.args.FROM_BASE?' <<< "$config" ))
-    # search local images for parent
-    if [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$base")" ]; then
-        # no immediate parent found. Need to locate best match from another branch, then resort to 'latest'
+    # get potential parents
+    local -a candidates=( $(build.baseTag) )
+    candidates+=( $(jq --compact-output --monochrome-output --raw-output 'try .parent_branches[]' <<< "$BUILD_YAML" ||:) )
 
-        # get potential parents
-        local -a candidates=( $(build.baseTag) )
-        candidates+=( $(jq --compact-output --monochrome-output --raw-output 'try .parent_branches[]' <<< "$BUILD_YAML" ||:) )
+    # search images for parent
+    local result=$(docker.imageExists "$base" "${candidates[@]}")
+    [ -z "${result:-}" ] && return 0
 
-        # get actual images from registry
-        local repo="$(docker.repo "$base")"
-        local json="$(registry.digests "$repo")"
-
-        # search for match
-        repo="$(docker.baseImage "$base")"
-        for tag in "$(docker.tag "$base")" "${candidates[@]}"; do
-            if [ "$(jq --compact-output --monochrome-output '.[]|select(.tags|contains(["'$tag'"]))' <<< "$json")" ]; then
-                echo "pulling parent image: ${repo}:$tag" >&2
-                echo "${repo}:$tag"
-                build.run docker pull "${repo}:$tag" >&2
-                if [ "$base" != "${repo}:$tag" ]; then
-                    build.run docker tag "${repo}:$tag" "$base"
-                    build.run docker rmi "${repo}:$tag"
-                fi
-                break
-            fi
-        done
-        return 0
-    fi
-    if [ "${unique:-}" ]; then
+    if [ -z "${unique:-}" ]; then
+        echo "${result/$(registry.SERVER)/parent $(registry.SERVER)}" >> "$PROGRESS_LOG"
+    else
+        # when unique specified: return image tagged with fingeerprint (if it exists)
         local tag="$(docker inspect "$base" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"' )"
         [ -z "${tag:-}" ] || [ "$tag" =  'null' ] || [ "$tag" = "$(docker.tag "$base")" ] || base="${base%:*}:$tag"
     fi
-[ -z "${base:-}" ] && trap.die 'Image Parent is undefined'
+
+    [ -z "${base:-}" ] && trap.die 'Image Parent is undefined'
     echo "$base"
 }
 
@@ -545,14 +524,16 @@ function build.logger()
     local msg=${1:?}
 
     if [ "${OPTS['conlog']:-0}" -eq 0 ]; then
-        if [[ $msg == checking* ]] || [[ $msg == *'has not changed.' ]]; then
-            echo "    $msg" >&3
-        else
-            echo -e "    \e[32m$msg\e[0m" >&3
-        fi
+        {
+            if [[ $msg = checking* ]]; then
+                echo "    $msg"
+            else
+                echo -e "    \e[32m$msg\e[0m"
+            fi
+        }  >&3
         echo "$msg" >> "$PROGRESS_LOG"
     fi
-    echo "    $msg"
+    [ -t 1 ] || echo "    $msg"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -643,6 +624,7 @@ function build.logToKafka()
     if [ "${PROGRESS_LOG:-}" ] && [ -s "$PROGRESS_LOG" ]; then
         local -a progress_log=( $(< "$PROGRESS_LOG") )
         build_data['actions']='[progress_log]'
+        :> "$PROGRESS_LOG"
     fi
 
     # now log our data to kafka
@@ -679,7 +661,7 @@ function build.main()
         export _REGISTRY_USER="${OPTS['user']}"
         export _REGISTRY_CREDENTIALS=$(credentials.get registry)
     fi
-
+    export DEBUG=${OPTS['debug']:-0}
 
     local -r logDir="${OPTS['logdir']:-}"
     [ -d "$logDir" ] || mkdir -p "$logDir"
@@ -766,18 +748,21 @@ function build.module()
 
 
     # rebuild container because no container exists with the correct fingerprint
-    if [ "${OPTS['conlog']:-0}" -eq 0 ]; then
-        # this on Jenkins
-        :> "$PROGRESS_LOG"
+    if [ "${OPTS['conlog']:-0}" -ne 0 ]; then
+        (build.updateContainer "$compose_yaml" "$taggedImage" "$actualImage" "$CONTAINER_ORIGIN") && status=$? || status=$?
+    else
+
+        # just show summary info
         local logBase="${logDir}/${dir}.${containerOS}"
         [ -f "${logBase}.out.log" ] && sudo rm "${logBase}.out.log"
         [ -f "${logBase}.err.log" ] && sudo rm "${logBase}.err.log"
         build.logInfo 'include_time' > "${logBase}.out.log"
+
         # - use 'sed' to strip color codes from "${logBase}.out.log"
         (build.updateContainer "$compose_yaml" "$taggedImage" "$actualImage" "$CONTAINER_ORIGIN" 2>"${logBase}.err.log" \
           | sed -E 's|\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]||g' >>"${logBase}.out.log") \
           && status=$? || status=$?
-        [[ $status -eq 9 || ! -s "${logBase}.out.log" ]] && rm "${logBase}.out.log"
+        [ ! -s "${logBase}.out.log" ] && rm "${logBase}.out.log"
         if [ -f "${logBase}.err.log" ]; then
             [ -s "${logBase}.err.log" ] || rm "${logBase}.err.log"
         fi
@@ -790,7 +775,7 @@ function build.module()
             [ -s "${logBase}.err.log" ] && echo "    STDERR log:     ${log_display_base}.err.log/*view*/"
         fi
 
-        if [ $status -ne 0 ] && [ $status -ne 9 ]; then
+        if [ $status -ne 0 ]; then
           term.log "\n"
           term.log "***Error occurred while generating $taggedImage" 'error'
           echo
@@ -808,9 +793,6 @@ function build.module()
           echo
           echo '----------------------------------------------------------------------------------------------'
         fi
-
-    else
-        (build.updateContainer "$compose_yaml" "$taggedImage" "$actualImage" "$CONTAINER_ORIGIN") && status=$? || status=$?
     fi
     local -i moduleEndTime=$(timer.getTimestamp)
     local -i moduleElapsed=$(( moduleEndTime - moduleStartTime ))
@@ -828,7 +810,6 @@ function build.module()
                      "$containerOS" \
                      "$CONTAINER_GIT_REFS"
 
-    [ $status -eq 9 ] && status=0
     return $status
 }
 
@@ -847,51 +828,32 @@ function build.updateContainer()
     local -r actualImage=${3:?}
     local -r revision=${4:-}
 
+    if [ "${OPTS['conlog']:-0}" -eq 0 ]; then
+        local line
+        while read -r line; do
+            echo -e "    \e[32m$line\e[0m" >&3
+        done < "$PROGRESS_LOG"
+    fi
+
     if [ "${OPTS['force']:-0}" = 0 ]; then
-        build.logger "checking for local $taggedImage with the correct fingerprint"
-        local -a images
-        mapfile -t images < <(build.findIdsWithFingerprint "$CONTAINER_FINGERPRINT" | grep -v '<none>:<none>' || :)
-        if [ ${#images[*]} -gt 0 ]; then
-            build.logger "${taggedImage} has not changed."
-            local -i doPush=0
-            if [ $(printf '%s\n' "${images[@]}" | grep -cs "$taggedImage") -eq 0 ]; then
-                # found image by a different 'name:tag'
-                build.run docker tag "${images[0]}" "$taggedImage"
-                doPush=1
-            elif [ "${OPTS['push']:-0}" != 0 ] || [ $(docker inspect "$taggedImage" | jq --compact-output --monochrome-output --raw-output '.[].RepoDigests?|length') -eq 0 ]; then
-                doPush=1
-            fi
-            [ $doPush -eq 0 ] || docker.pushRetained 0 "$taggedImage"
-            return 9
-        fi
-
-
-        # check if there is an image in the registry with the correct fingerprint
-        build.logger "checking if $actualImage is available in registry"
-        if build.run docker pull "$actualImage" 2>/dev/null; then
-            # downloaded image from registry
-            build.changeImage "$taggedImage" "$actualImage"
-            build.logImageInfo "$taggedImage" "$compose_yaml"
-            if [ "${OPTS['push']:-0}" != 0 ]; then
-                build.logger "pushing ${taggedImage} to registry"
-                docker.pushRetained 0 "$taggedImage"
-            fi
-            build.run docker rmi "$actualImage"
-            return 9
+        local result=$(docker.imageExists "$taggedImage" "$CONTAINER_FINGERPRINT")
+        if [ "${result:-}" ]; then
+            build.logger "$result"
+            [ "${OPTS['push']:-0}" != 0 ] && docker.pushRetained 0 "$taggedImage"
+            return 0
         fi
     fi
 
-
     # get any custom variables needed and export them
-    local -a custom=( $(jq --compact-output --monochrome-output --raw-output 'try .custom-properties[]' <<< "$BUILD_YAML" ||:) )
-    if [ "${#custom[*]}" -gt 0 ]; then
-        lib.exportFileVars < <(printf '%s\n' "${custom[@]}")
+    if [ $(jq --compact-output --monochrome-output --raw-output 'has("custom-properties")' <<< "$BUILD_YAML" ||:) = 'true' ]; then
+        local -a custom=( $(jq --compact-output --monochrome-output --raw-output 'try .custom-properties[]' <<< "$BUILD_YAML" ||:) )
+        [ "${#custom[*]}" -gt 0 ] && lib.exportFileVars < <(printf '%s\n' "${custom[@]}")
     fi
 
 
     # rebuild container because no container exists with the correct fingerprint
     build.logger "building $actualImage"
-    build.run docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
+    docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
 
     build.changeImage "$taggedImage" "$actualImage"
     [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$taggedImage")" ] && build.run docker tag "$actualImage" "$taggedImage"
@@ -949,7 +911,7 @@ declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 
-declare -r loader="$PROGRAM_DIR/appenv.bashlib"
+declare -r loader="${PROGRAM_DIR}/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries' >&2
     exit 1

@@ -10,5 +10,3 @@ export _REGISTRY_URL="$(registry.URL)"
 #export _REGISTRY_USER="$(registry.USER)"
 #export _REGISTRY_CREDENTIALS=$(credentials.get registry)
 
-export _VERSIONS_REPO="$(versions.REPO .versions)"
-

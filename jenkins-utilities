@@ -1,0 +1,288 @@
+#!/bin/bash
+
+#----------------------------------------------------------------------------------------------
+function jenkins-utilities.usage()
+{
+    local -i exit_status=${1:-1}
+
+    cat >&2 << EOF
+Usage:
+    $PROGNAME [ -h|--help ] <repository> | <image> <image>
+
+    Common options:
+        -h --help                             Display a basic set of usage instructions
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}
+        -c --credentials <credentials_file>   File container key/value pairs for user=pwd 
+ 
+    get info from GitHub
+
+EOF
+    exit "$exit_status"
+}
+
+#----------------------------------------------------------------------------------------------
+function jenkins-utilities.cmdLineArgs()
+{
+    # Parse command-line options into above variable
+    local -r longoptions='help,Help,HELP,debug,user:,credentials:,base:,server:'
+    local -r shortoptions='Hhdc:u:b:s:'
+    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$PROGNAME" -- "$@") || jenkins-utilities.usage $?
+    eval set -- "$options"
+
+    local -A opts=(['base']="$(pwd)")
+    [ ${DEBUG:-0} -ne 0 ] && opts['debug']=$DEBUG 
+    while [ "${1:-}" ]; do
+        case "${1,,}" in
+            -h|--h|--help|-help)  jenkins-utilities.usage 1;;
+            -d|--d|--debug)       opts['debug']=1; shift;;
+            -u|--u|--user)        opts['user']="$2"; shift 2;;
+            -c|--c|--credentials) opts['credentials']="$2"; shift 2;;
+            -b|--b|--base)        opts['base']="$2"; shift 2;;
+            -s|--s|--server)      opts['server']="$2"; shift 2;;
+            --)                   shift; break;;
+            *)                    break;;
+        esac
+    done
+
+    # show args
+    if [ ${opts['debug']:-0} -gt 0 ]; then
+        {
+            for i in "${!opts[@]}"; do
+               printf '%s: %s\n' $i "${opts[$i]}"
+            done
+            echo 'args:'
+            for i in "$@"; do
+               printf '   %s\n' "$i"
+            done
+            echo
+        } >&2
+    fi
+ 
+    appenv.results "$@"
+}
+
+#----------------------------------------------------------------------------------------------
+function jenkins-utilities.main1()
+{
+    local -A OPTS
+    eval OPTS=( $1 )
+    readonly OPTS
+    shift
+
+    local loc="${OPTS['base']}"
+    mkdir -p "$loc" ||:
+
+    declare -a all_orgs=(  ATE
+		       CFT-EST
+		       CTD-MRQE-Puppet
+		       CTD-MRSE-Test-Management
+		       CTDMRQEPuppe
+		       Devops
+		       MRS-PartnerEcosystem
+		       MSDE-Tools
+		       PIE
+		       Rel-Eng
+		       Test-and-Automation-Enablement
+		       controlpath
+		       controlpath-RE
+		       cyclone-devops
+		       cyclone3rdparty
+		       cyclone3rdparty-RE
+		       cyclonecommon
+		       cyclonecommon-RE
+		       datamobility
+		       datamobility-RE
+		       devops-test
+		       mr-testbeds
+		       platform
+		       platform-RE
+		       serviceability
+		       serviceablility-RE
+		       testinfrastructure
+		       testinfrastructure-RE
+		       unity-block
+		       unity-datamobility
+		       unity-file
+		       unity-mgmt
+		       unity-neva
+		       unity-platform
+		       unity-protocols
+                       unity-system
+         )
+
+    local -a orgs=(  Devops
+                     cyclone
+                     Test-and-Automation-Enablement
+                     cyclone-devops
+                     ATE
+                     Rel-Eng
+                     MSDE-Tools
+                     cyclone3rdparty
+                     MRS-PartnerEcosystem
+                     mr-testbeds
+                     PIE
+                     CFT-EST
+                     devops-test
+                     CTDMRQEPuppe
+                     CTD-MRQE-Puppet
+                     CTD-MRSE-Test-Management
+    )
+
+    local org repoId repoName teamId teamName line
+    local -i status
+    echo "Starting process $$ at $(TZ=New_York date)"
+    echo "user: $OPTS['user']"
+
+    for org in "${all_orgs[@]}"; do
+        mkdir -p "${loc}/${org}" ||:
+        (github.orgRepos "$org" > "${loc}/${org}/repos.json") && status=$? || status=$?
+        while read -r line; do
+            repoId=${line%%,*}
+            repoName=${line#*, }
+            (github.orgRepoInfo "$org" "$repoName" > "${loc}/${org}/repos.${repoName}.info.json") && status=$? || status=$?
+            (github.repoCollaborators "$org" "$repoName" > "${loc}/${org}/repos.${repoName}.collaborators.json") && status=$? || status=$?
+        done < <(jq -r '.[]|"\(.id), \(.name)"' "${loc}/${org}/repos.json")
+
+        (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
+        while read -r line; do
+            teamId=${line%%,*}
+            teamName=${line#*, }
+            (github.teamMembers "$teamId" > "${loc}/${org}/repos.${teamName}.members.json") && status=$? || status=$?
+            (github.teamRepos "$teamId" > "${loc}/${org}/repos.${teamName}.repos.json") && status=$? || status=$?
+        done < <(jq -r '.[]|"\(.id), \(.name)"' "${loc}/${org}/teams.json")
+    done
+
+    jenkins-utilities.process_files "$loc"
+    echo
+}
+
+#----------------------------------------------------------------------------------------------
+function jenkins-utilities.main2()
+{
+    local -A OPTS
+    eval OPTS=( $1 )
+    readonly OPTS
+    shift
+
+    local loc="${OPTS['base']}"
+    mkdir -p "$loc" ||:
+
+    local -a orgs=(  Devops
+                     cyclone
+                     Test-and-Automation-Enablement
+                     cyclone-devops
+                     ATE
+                     Rel-Eng
+                     MSDE-Tools
+                     cyclone3rdparty
+                     MRS-PartnerEcosystem
+                     mr-testbeds
+                     PIE
+                     CFT-EST
+                     devops-test
+                     CTDMRQEPuppe
+                     CTD-MRQE-Puppet
+                     CTD-MRSE-Test-Management
+    )
+
+    local org repoId repoName teamId teamName line
+    local -i status
+    echo "Starting process $$ at $(TZ=New_York date)"
+    echo "user: $OPTS['user']"
+
+    for org in "${orgs[@]}"; do
+        (github.orgRepos "$org" > "${loc}/${org}/repos.json") && status=$? || status=$?
+        (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
+    done
+    echo
+}
+
+#----------------------------------------------------------------------------------------------
+function jenkins-utilities.main()
+{
+    local -A OPTS
+    eval OPTS=( $1 )
+    readonly OPTS
+    shift
+
+    local loc="${OPTS['base']}"
+    mkdir -p "$loc" ||:
+
+    local org repoId repoName teamId teamName line
+    local -i status
+    echo "Starting process $$ at $(TZ=New_York date)"
+    echo "user: $OPTS['user']"
+
+    (github.orgRepos Devops > "${loc}/Devops.repos.json") && status=$? || status=$?
+    echo
+}
+
+#----------------------------------------------------------------------------------------------
+function jenkins-utilities.process_files()
+{
+    local pwd="${1:?}"
+    local -A DATA=(['collaborators']="id login site_admin type permissions.admin permissions.push permissions.pull"
+                   ['members']="id login site_admin type"
+                   ['repos']="id name owner.type owner.site_admin private description fork size archived default_branch permissions.admin permissions.push permissions.pull full_name"
+                   ['teams']="id name slug description privacy permission"
+                  )
+
+    for dir in $(find "$pwd" -mindepth 1 -maxdepth 1 -type d); do
+        local org="$(basename "$dir")"
+        for objtype in "${!DATA[@]}"; do
+            # verify there are files to process
+            local -a files
+            mapfile -t files < <(find ${dir} -mindepth 1 -maxdepth 1 -name "*.${objtype}.json" ||:)
+            [ "${#files[*]}" -eq 0 ] && continue
+
+            local -a exp
+            mapfile -t exp < <( $(awk '{print $0}' RS=' ' <<< ${DATA[$objtype]} ||:) )
+            local last=$(( ${#exp[@]} - 1 ))
+            for (( i=0; i<"${#exp[@]}"; i++ ));do
+                [ -z "${exp[i]:-}" ] && continue
+                if [ $i -eq $last ]; then
+                    exp[i]='\(.'${exp[i]}')'
+                else
+                    exp[i]='\(.'${exp[i]}'),'
+                fi
+            done
+
+            local logfile="${pwd}/${org}.${objtype}.csv"
+            :> "$logfile"
+            local jexp='.[]|"'"${org}${objtype},$(basename $file),${exp[*]}"'"'
+            for file in "${files[@]}"; do
+                jq -r "$jexp" "$file" >> "$logfile"
+            done
+        done
+    done
+}
+
+#----------------------------------------------------------------------------------------------
+#
+#      MAIN
+#
+#----------------------------------------------------------------------------------------------
+
+declare -i start=$(date '+%s')
+declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
+declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+
+declare -r loader="${PROGRAM_DIR}/appenv.bashlib"
+if [ ! -e "$loader" ]; then
+    echo 'Unable to load libraries' >&2
+    exit 1
+fi
+source "$loader"
+appenv.loader 'jenkins-utilities.main'
+
+
+declare -i status=0
+declare -a args
+args=( $( jenkins-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
+[ $status -ne 0 ] || jenkins-utilities.main "${args[@]:-}" && status=$? || status=$?
+
+declare -i elapsed=$(( $(date '+%s') - start ))
+[ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
+
+exit $status

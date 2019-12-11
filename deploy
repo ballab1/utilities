@@ -43,15 +43,20 @@ function deploy.__initGlobals()
     export CONFIG_DIR="${base_dir}"
     readonly CONFIG_DIR
 
+    export DEPLOY_YAML="${CONFIG_DIR}/deploy.yml"
+    [ -e "$DEPLOY_YAML" ] || trap.die "Unable to locate deploy configuration file: $DEPLOY_YAML"
+    readonly DEPLOY_YAML
+
+    local deploy_json="$(lib.yamlToJson "$DEPLOY_YAML")"
+
+    # verify our basic setup is good
+    export CONTAINER_OS="$(jq --compact-output --monochrome-output --raw-output 'try .container_os' <<< "$deploy_json" ||:)"
+    [ "${CONTAINER_OS:-}" ] || trap.die "missing 'container.os' section in $deploy_json"
+    readonly CONTAINER_OS
+
     export WORKSPACE_DIR="$(deploy.workspace "$base_dir")"
     readonly WORKSPACE_DIR
     export WORKSPACE_YAML="${WORKSPACE_DIR}/docker-compose.yml"
-
-
-    # verify our basic setup is good
-    [ -f "${CONFIG_DIR}/container.os" ] || trap.die "missing 'container.os' file"
-    export CONTAINER_OS="$(< "${CONFIG_DIR}/container.os")"
-    readonly CONTAINER_OS
 
     # verify docker-compose.yml in 'config' dir
     export CONFIG_YAML="${CONFIG_DIR}/docker-compose.yml"
@@ -68,15 +73,11 @@ function deploy.__initGlobals()
     [ "$file_count" -gt 0 ] || deploy.showInitializationBanner
 
 
-    export VERSIONS_INFO="${CONFIG_DIR}/.versions"
-    readonly VERSIONS_INFO
-
     export LOG_DIR="${base_dir}/logs"
     readonly LOG_DIR
 
     export SECRETS_DIR="${WORKSPACE_DIR}/.secrets"
     readonly SECRETS_DIR
-
 
     export CFG_USER
     : ${CFG_USER:=$(git.user)}
@@ -85,14 +86,24 @@ function deploy.__initGlobals()
     CFG_USER="${CFG_USER%@*}"
     export CFG_NAME="${CFG_NAME:-$(git.userName)}"
     export CFG_EMAIL="${CFG_EMAIL:-$(git.userEmail)}"
+    environ.container
 
+    # import our setup configuration
+    local key val
+    while read -r key; do
+        val="$(jq --compact-output --monochrome-output --raw-output '.environment.'"$key" <<< "$deploy_json")"
+        eval export $key="$val"
+        readonly $key
+    done < <(jq --compact-output --monochrome-output --raw-output '.environment|keys[]' <<< "$deploy_json")
+
+
+    # verify we have the mandatory env variables defined
     [ "${CFG_USER:-}" ] || term.elog 'CFG_USER has not been configured.\n' 'yellow'
     [ "${CFG_NAME:-}" ] || term.elog 'CFG_NAME has not been configured.\n'  'yellow'
     [ "${CFG_EMAIL:-}" ] || term.elog 'CFG_EMAIL has not been configured.\n' 'yellow'
     [[ "${CFG_USER:-}" && "${CFG_NAME:-}" && "${CFG_EMAIL:-}" ]] || deploy.configSettingsHelp
-    # verify we have the mandatory env variables defined
-    [ "${HOST_IP:-}" ] || term.elog "HOST_IP has not been configured. Please update '$setup_config'"
-    [ "${HOST_NAME:-}" ] || term.elog "HOST_NAME has not been configured. Please update '$setup_config'"
+    [[ -z "${HOST_IP:-}" || "${HOST_IP}" = *\ * ]] && trap.die 'HOST_IP is invalid or has not been configured. Please update the '\''environment'\'' section in deploy.yml'
+    [ "${HOST_NAME:-}" ] || term.elog 'HOST_NAME has not been configured. Please update the '\''environment'\'' section in deploy.yml\n'
     [[ "${CFG_USER:-}" && "${CFG_NAME:-}" && "${CFG_EMAIL:-}" && "${HOST_IP:-}" && "${HOST_NAME:-}" ]] || trap.die 'Invalid configuration'
 
  
@@ -100,8 +111,6 @@ function deploy.__initGlobals()
     readonly CFG_NAME
     readonly CFG_EMAIL
 
-    # import our setup configuration
-    lib.exportFileVars "${CONFIG_DIR}/setup.cfg" 'export' 'true'
 
     # verify that all our environment variables have been set
     deploy.verifyEnvironmentForFile docker-compose.yml
@@ -112,6 +121,13 @@ function deploy.__initGlobals()
 
     # ensure our log dir exists
     [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR" ||:
+
+    mapfile -t SKIP_WAIT < <(jq --compact-output --monochrome-output --raw-output '.skip_wait[]' <<< "$deploy_json" ||:)
+    readonly SKIP_WAIT
+
+    # verify our basic setup is good
+    mapfile -t COMPLETION_MSG < <(jq --compact-output --monochrome-output --raw-output 'try .completion_msg[]' <<< "$deploy_json" ||:)
+    readonly COMPLETION_MSG
 }
 
 #----------------------------------------------------------------------------------------------
@@ -147,17 +163,18 @@ function deploy.cmdLineArgs()
 
     while [ "${1:-}" ]; do
         case "${1,,}" in
-            -h|--h|--help|-help)  deploy.usage 1;;
-            -b|--b|--base)        opts['base']="$2";        shift 2;;
-            -c|--c|--clean)       opts['clean']=1;          shift;;
-                   --debug)       opts['debug']=1;          shift;;
-                   --dev)         opts['dev']=1;            shift;;
-            -d|--d|--down)        opts['down']=1;           shift;;
-            -i|--i|--init)        opts['init']=1;           shift;;
-            -l|--l|--latest)      opts['latest']='HEAD';    shift;;
-            -n|--n|--nodown*)     opts['local']=1;          shift;;
-            -t|--t|--tag)         opts['container_tag']=$2; shift 2;;
-            --)                   shift; break;;
+            -h|--h|--help|-help)       deploy.usage 1;;
+            -b|--b|--base)             opts['base']="$2";        shift 2;;
+            -c|--c|--clean)            opts['clean']=1;          shift;;
+                   --debug)            opts['debug']=1;          shift;;
+                   --dev)              opts['dev']=1;            shift;;
+            -d|--d|--down)             opts['down']=1;           shift;;
+            -i|--i|--init)             opts['init']=1;           shift;;
+            -l|--l|--latest)           opts['latest']='HEAD';    shift;;
+            -n|--n|--nodown*)          opts['local']=1;          shift;;
+            -t|--t|--tag)              opts['container_tag']=$2; shift 2;;
+            --)                        shift; break;;
+            *)                         break;;
         esac
     done
 
@@ -402,6 +419,8 @@ function deploy.fixupDCLineBeforeRun()
 
     # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
     while read -r keyName; do
+        [ -z "${!keyName:-}" ] && continue
+
         # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
         line="$(sed -E 's|^(\s+.*\$\{'${keyName}':-)[^\}]+(}.*)$|\1'${!keyName}'\2|' <<< "$line")"
     done < <(awk '/([A-Z0-9]+_VERSION):-/ {sub(":.*","");print substr($0,2)}' RS='$' <<< "$line")
@@ -458,12 +477,32 @@ function deploy.initialize()
 }
 
 #----------------------------------------------------------------------------------------------
+# used by '......setup' files
+function deploy.isValidService()
+{
+    local -r service=${1:?}
+    
+    local result="$(lib.yamlToJson "$WORKSPACE_YAML" | jq --compact-output --monochrome-output --raw-output 'try .services|has("'${service}'")' )"
+
+    [ "${result:-}" != 'true' ] && return 1
+    return 0
+}
+export -f deploy.isValidService
+
+#----------------------------------------------------------------------------------------------
 function deploy.main()
 {
+    # declare our GLOBAL variables
+    declare -ax COMPLETION_MSG SKIP_WAIT
+    declare -x CFG_EMAIL CFG_NAME CFG_USER CONFIG_DIR CONFIG_YAML CONTAINER_OS DEBUG_TRACE DEPLOY_YAML HOST_IP HOST_NAME LOG_DIR SECRETS_DIR START_TIMEWORKSPACE_DIR WORKSPACE_YAML 
     declare -A OPTS
+
     eval "OPTS=( ${1:?} )"
     readonly OPTS
     shift
+
+    export DEBUG=${OPTS['debug']:-0}
+
 
     deploy.__initGlobals "${OPTS['base']}" "${OPTS['latest']:-}"
 
@@ -471,12 +510,8 @@ function deploy.main()
     [ -z "${OPTS['clean']:-}" ] || deploy.clean
     mkdir -p "$WORKSPACE_DIR" ||:
 
+    versions.data "$DEPLOY_YAML" "${OPTS['container_tag']:-}"
 
-    # temporarily reduce DEBUG_TRACE to prevent 'git' tracing
-    (( DEBUG_TRACE-- )) ||:
-    versions.data "$VERSIONS_INFO" "${OPTS['container_tag']:-}"
-    versions.get "$CONTAINER_OS" 'export'
-    (( DEBUG_TRACE++ )) ||:
 
     if [ "${OPTS['init']:-}" ]; then
         #  initialize devops_container_environment
@@ -505,14 +540,14 @@ function deploy.passwordSecret()
     local -r service=${1:?}
     local -r pwdVar=${2:?}
 
-    local secret jqquery
+    local secret jqQuery
     local -r json="$(lib.yamlToJson "$WORKSPACE_YAML")"
     local password="$(jq --compact-output --monochrome-output --raw-output '.services.'${service}'.environment.'${pwdVar} <<< "$json" )"
     if [ "$password" = 'null' ];then
         password="$(jq --compact-output --monochrome-output --raw-output '.services.'${service}'.environment.'${pwdVar}'_FILE' <<< "$json" )"
         secret="$(basename "$password")"
-        jqquery='.secrets."'"${secret}"'".file'
-        local pwd_file="$(eval echo "$(jq --compact-output --monochrome-output --raw-output "$jqquery" <<< "$json" )")"
+        jqQuery='.secrets."'"${secret}"'".file'
+        local pwd_file="$(eval echo "$(jq --compact-output --monochrome-output --raw-output "$jqQuery" <<< "$json" )")"
         [ -e "$pwd_file" ] || trap.die "Password file: '$pwd_file' not found. Used by startup of service: $service"
         password=$(< "$pwd_file")
     fi
@@ -559,17 +594,16 @@ function deploy.pushImages()
 {
     local -r dc_yaml=${1:?}
 
-    local image service srvc
     local -a images=()
 
     local -r json=$(lib.yamlToJson "$dc_yaml")
 
     # extract images from docker-compose
-    while read -r srvc; do
-        service=$(jq --compact-output --monochrome-output ".services.$srvc" <<< "$json")
-        image="$(eval echo "$(jq --compact-output --monochrome-output --raw-output '.image' <<< "$service")" )"
-        images+=( "$image" )
-    done < <(jq --compact-output --monochrome-output --raw-output '.services|keys[]' <<< "$json")
+    
+    local image
+    while read -r image; do
+        images+=( "$(eval "echo $image")" )
+    done < <(jq --compact-output --monochrome-output --raw-output '.services[].image' <<< "$json")
 
     docker.pushRetained 1 "${images[@]}"
 }
@@ -606,8 +640,8 @@ function deploy.replaceIpAddresses()
 
     if [ -e "$filename" ]; then
         local -r ip_match_rgx='((1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])\.){3}(1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])'
-        local expr="'s#${ip_match_rgx}#${host_ip}#g'"
-        eval sed -i -r -e "$expr" "$filename"
+        local expr="s#${ip_match_rgx}#${host_ip}#g"
+        sudo sed -i -r -e "$expr" "$filename"
     fi
 }
 export -f deploy.replaceIpAddresses
@@ -643,9 +677,11 @@ function deploy.restart()
 
     # show help at end of deploy
     [ "${INITIALIZE_COMPLETE:-}" ] && term.log 'Initializing complete.\n' 'white'
-    if [ -e "${CONFIG_DIR}/completionMsg" ]; then
-        local msg="$(< "${CONFIG_DIR}/completionMsg")"
-        term.log "$(eval "echo $msg")"'\n' 'white'
+    if [ "${#COMPLETION_MSG[*]}" -gt 0 ]; then
+        local msg
+        for msg in "${COMPLETION_MSG[@]}"; do
+            term.log "$(eval "echo $msg")"'\n' 'white'
+        done
     fi
     exit 0
 }
@@ -706,15 +742,13 @@ function deploy.updateDockerCompose()
     # setup the conditions to control how docker.compose gets updated
     case "$mode" in
         createWsYaml)
-            # update skip.wait & docker-compose
-            cp "${CONFIG_DIR}/skip.wait" "${WORKSPACE_DIR}/skip.wait"
+            # update docker-compose
             src_yaml="$CONFIG_YAML"
             dst_yaml="$WORKSPACE_YAML"
             process='deploy.fixupDCLineBeforeRun'
             ;;
 
         updateWsYaml)
-            cp "${CONFIG_DIR}/skip.wait" "${WORKSPACE_DIR}/skip.wait"
             src_yaml="$CONFIG_YAML"
             dst_yaml="$WORKSPACE_YAML"
             process='deploy.fixupDCLineAfterRun'
@@ -839,8 +873,7 @@ function deploy.waitForInitializationComplete()
 
     # get the list of containers we will be checking
     local -a containers
-    mapfile -t containers < <(docker.services "$dc_yaml")
-
+    mapfile -t containers < <(lib.yamlToJson "$dc_yaml" | jq --compact-output --monochrome-output --raw-output '.services|map(.container_name)|sort[]')
 
     # initialize the log
     echo "Started at: ${START_TIME}" > "$run_log"
@@ -850,6 +883,7 @@ function deploy.waitForInitializationComplete()
     local container line
     local -i index=1
 
+
     term.log '\n'"INFO: waiting for ${#containers[*]} containers to complete their startup"'\n' 'white'
     while [ "${#finished[*]}" -lt "${#containers[*]}" ]; do
         # sleep 5 secs between scans
@@ -858,8 +892,8 @@ function deploy.waitForInitializationComplete()
 
         # check all known containers
         for container in "${containers[@]}"; do
-            # ignore any that are defined in 'skip.wait'
-            if [ $(grep -cs "$container" "${WORKSPACE_DIR}/skip.wait") -gt 0 ] && [ -z "${finished[${container,,}]:-}" ]; then
+            # ignore any that are defined in 'SKIP_WAIT'
+            if [ "${#SKIP_WAIT[*]}" -gt 0 ] && [ $(printf '%s\n' "${SKIP_WAIT[@]}" | grep -cs "$container") -gt 0 ] && [ -z "${finished[${container,,}]:-}" ]; then
                 printf '%02d. %s: skipping wait.\n' $(( index++ )) "${container^^}"
                 finished[$container]='0'
             fi
@@ -887,7 +921,7 @@ function deploy.waitForInitializationComplete()
 
     # update the run.log from each 'docker logs'
     for container in "${containers[@]}"; do
-        if [ $(grep -cs "$container" "${WORKSPACE_DIR}/skip.wait") -gt 0 ]; then
+       # if [ "${#SKIP_WAIT[*]}" -gt 0 ] && [ $(printf '%s\n' "${SKIP_WAIT[@]}" | grep -cs "$container") -gt 0 ]; then
           {
             echo 
             echo '>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
@@ -895,7 +929,7 @@ function deploy.waitForInitializationComplete()
             echo
             docker logs "${container}" 2>&1                      # grab the log
           } >> "$run_log"
-        fi
+       # fi
     done
 }
 
@@ -917,7 +951,7 @@ declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 
-declare -r loader="$PROGRAM_DIR/appenv.bashlib"
+declare -r loader="${PROGRAM_DIR}/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries' >&2
     exit 1
