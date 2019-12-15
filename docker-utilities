@@ -1254,7 +1254,7 @@ function docker-utilities.pushImage()
     for image in "$@"; do
         [ "${image:-}" ] && images+=( "$(registry.SERVER)$image" )
     done
-    docker.pushRetained ${OPTS['fingerprint']:-} "${images[@]}" && status=$? || status=$?
+    docker.pushRetained ${OPTS['fingerprint']:-0} "${images[@]}" && status=$? || status=$?
     return $status
 }
 
@@ -1481,7 +1481,7 @@ function docker-utilities.retagLatest()
         docker-utilities.run docker tag "$image" "$target"
     done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep "$from")
 
-    docker.pushRetained '1' "${images[@]}"
+    docker.pushRetained 1 "${images[@]}"
     docker-utilities.run docker rmi "${images[@]}"
 }
 

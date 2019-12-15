@@ -5,7 +5,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 IFS=$'\n\t'
-declare -r CBF_URL="https://github.com/ballab1/container_build_framework/archive"
+
+declare -r CBF_URL="https://afeoscyc-mw.cec.lab.emc.com/artifactory/cyclone-devops/cyclone-devops/container_build_framework"
 export CBF_DIR_TEMP
 export CHAIN_EXIT_HANDLER
 
@@ -13,37 +14,6 @@ export CHAIN_EXIT_HANDLER
 function __init.die() {
     echo "$1" >&2
     exit 1
-}
-
-function __init.loader() {
-#    __init.loadCBF
-
-    # only load libraries from bashlib (not below). Sort to be deterministic
-    local __libdir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-    __libdir="$(readlink -f "$__libdir")"
-    local -a __libs
-    mapfile -t __libs < <(find "$__libdir" -maxdepth 1 -mindepth 1 -name '*.bashlib' -not -name 'appenv.bashlib' | sort)
-    if [ "${#__libs[*]}" -eq 0 ] && [ -d "${__libdir}/bashlib" ]; then
-        mapfile -t __libs < <(find "${__libdir}/bashlib" -maxdepth 1 -mindepth 1 -name '*.bashlib' -not -name 'appenv.bashlib' | sort)
-    fi
-    if [ "${#__libs[*]}" -eq 0 ] && [ -d /usr/local/crf/bashlib ]; then
-        mapfile -t __libs < <(find /usr/local/crf/bashlib -maxdepth 1 -mindepth 1 -name '*.bashlib' -not -name 'appenv.bashlib' | sort)
-    fi
-
-    if [ "${#__libs[*]}" -gt 0 ]; then
-        echo -en "    loading project libraries from $__libdir: \e[35m"
-        [[ "${DEBUG:-}" || "${DEBUG_TRACE:-0}" -gt 0 ]] && echo
-        for __lib in "${__libs[@]}"; do
-            if [[ "${DEBUG:-}" || "${DEBUG_TRACE:-0}" -gt 0 ]]; then
-                echo "        $__lib"
-            else
-                echo -n " $(basename "$__lib")"
-            fi
-            source "$__lib"
-        done
-        echo -e '\e[0m'
-    fi
-    [ ! -e "${__libdir}/init.cache" ] || source "${__libdir}/init.cache"
 }
 
 function __init.loadCBF() {
@@ -113,7 +83,7 @@ function __init.myExitHandler() {
 }
 
 if [[ "${DEBUG:-}" || "${DEBUG_TRACE:-0}" -gt 0 ]]; then
-    __init.loader >&2
+    __init.loadCBF >&2
 else
-    __init.loader &> /dev/null
+    __init.loadCBF &> /dev/null
 fi

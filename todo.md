@@ -9,7 +9,7 @@ move to python:3.7
 
 
 security
-    remove CBF bashlib exports:  implement registry (using grep) of funcitons, and export when needed
+    remove CBF bashlib exports:  implement registry (using grep) of functions, and export when needed
 
 
 docker-utilities
@@ -57,6 +57,23 @@ builds
 Done
 =============================================================
 ```
+12/15/2019
+docker-utilities
+    Unable to load libraries
+         docker-utilities report --format json --output /opt/registryContents.json
+    error running
+        ..executing /usr/local/crf/startup/99.logs.sh
+            sourcing (CRF):  CRF 01.dockr
+            adding dir: /var/log, uid: 1000 to cache_file: /tmp/fixUpCache
+            Fixing up directory: /var/log  for user: builder(1000)
+             - changing ownership for directory: /var/log  to 1000:builder
+        chmod: cannot operate on dangling symlink '/usr/local/bin/appenv.bashlib'
+        ***ERROR at /usr/local/crf/bashlib/crf.bashlib:257. 'chmod a+rx "/usr/local/bin/"*' exited with status 1
+        ***ERROR at /usr/local/bin/docker-entrypoint.sh:88. 'tee -a "$logFile" 1>&2' exited with status 1
+        ***ERROR at /usr/local/bin/docker-entrypoint.sh:21. 'sudo -E "$0" "$config_entry"' exited with status 1
+        ***ERROR at /usr/local/bin/docker-entrypoint.sh:74. 'tee -a "$logFile" 1>&2' exited with status 1
+
+
 11/29/2019
 deploy
     change to deploy.yml
