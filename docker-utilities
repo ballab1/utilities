@@ -970,7 +970,7 @@ function docker-utilities.deleteTagInSpecificRepo()
     fi
 
     local -r repo="$(docker.repo "$ref")"
-    loal -r digest="$(docker.tag "$ref")"
+    local -r digest="$(docker.tag "$ref")"
 
 
     local repo_json

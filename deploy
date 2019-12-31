@@ -392,10 +392,10 @@ function deploy.fixupDCLineAfterRun()
 
     # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
     while read -r keyName; do
+        [ -z ${!keyName:-} ] && trap.die "unrecognized VERSION parameter $keyName used."
         # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
         line="$(sed -E 's|^(\s+.*\$\{'${keyName}':-)[^\}]+(}.*)$|\1'${!keyName}'\2|' <<< "$line")"
     done < <(awk '/([A-Z0-9]+_VERSION):-/ {sub(":.*","");print substr($0,2)}' RS='$' <<< "$line")
-
 
     if [ -z "${isConfig:-}" ] && [ "$(grep -cEs ':\?}' <<< "$line")" -gt 0 ]; then
         local indent="$(sed -Ee 's|^(\s+).*$|\1|' <<< "$line")"
