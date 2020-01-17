@@ -66,7 +66,7 @@ function build.all()
         if [ -d "${OPTS['base']}/container_build_framework" ]; then
             cbf_version="$(build.cbfVersion)" || trap.die "Unable to save CBF to $(custom.storage)."'\n'
         else
-            cbf_version="$(git.mainBranch)"
+            cbf_version="$(git.referenceBranch)"
         fi
     fi
 

@@ -179,6 +179,7 @@ class CbfDownload:
                 os.remove(dlfile)
                 newline = '{}[\'sha256_{}\']="{}"\n'.format(self.name, version, sha256.hexdigest())
                 return newline
+            raise Exception('spam', 'eggs')
         except:
             print 'failed to download from: ' + url
             sys.exit(1)

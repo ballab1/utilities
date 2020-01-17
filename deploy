@@ -89,12 +89,23 @@ function deploy.__initGlobals()
     environ.container
 
     # import our setup configuration
+    local -A deps=()
     local key val
     while read -r key; do
         val="$(jq --compact-output --monochrome-output --raw-output '.environment.'"$key" <<< "$deploy_json")"
-        eval export $key="$val"
-        readonly $key
+        if (eval export "$key=$val" 2>/dev/null); then
+            eval export "$key=$val"
+            readonly "$key"
+        else
+            deps[$key]="$val"
+        fi
     done < <(jq --compact-output --monochrome-output --raw-output '.environment|keys[]' <<< "$deploy_json")
+
+    for key in "${!deps[@]}"; do
+        val="${deps[$key]}"
+        eval export "$key=$val"
+        readonly "$key"
+    done
 
 
     # verify we have the mandatory env variables defined
@@ -899,14 +910,15 @@ function deploy.waitForInitializationComplete()
             fi
 
             # look for specific 'end of startup' string in logs
-            local text="$(docker logs "${container,,}" 2>&1 | grep -s "Finished executing startup" | head -1 ||: )"
+            local text="$(docker logs "${container,,}" 2>&1 | grep -s 'Finished executing startup' | head -1 ||: )"
             [ "$text" ] || continue                                        # ignore blank lines
             [ "${container,,}" ] || continue                               # ignore invalid container
             [ -z "${finished[${container,,}]:-}" ] || continue             # ignore if we already have this result
 
             # keep track of what has finished
-            finished[${container,,}]="$text"
             lines+=( "$(sed -Ee 's|^.+Finished executing startup scripts after ||' <<< "$text" | awk -F ':' '{ print ((($1 * 60) + $2) * 60) + $3 }')_${container,,}" )
+            [ "$(docker logs "${container,,}" 2>&1 | grep -sc '>>>>> issue while executing ' ||: )" -gt 0 ] && text='\e[33m'"$text"'\e[0m'
+            finished[${container,,}]="$text"
         done
 
         # print out any containers we found in this scan
@@ -918,6 +930,7 @@ function deploy.waitForInitializationComplete()
             docker logs "${container}" >> "$run_log" 2>&1                      # grab the log
         done
     done
+
 
     # update the run.log from each 'docker logs'
     for container in "${containers[@]}"; do
