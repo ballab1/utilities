@@ -88,19 +88,24 @@ function deploy.__initGlobals()
     export CFG_EMAIL="${CFG_EMAIL:-$(git.userEmail)}"
     environ.container
 
-    # import our setup configuration
     local -A deps=()
     local key val
-    while read -r key; do
-        val="$(jq --compact-output --monochrome-output --raw-output '.environment.'"$key" <<< "$deploy_json")"
+    local -i idx
+
+    # import our setup configuration  (combine 'environment and thirdparty_versions' as they are only separate for readability)
+    local json="$(jq --compact-output --monochrome-output '[.environment + .thirdparty_versions|to_entries[]]' <<< "$deploy_json")"
+    local -i numkeys=$(jq --compact-output --monochrome-output --raw-output 'length' <<< "$json")
+
+    for (( idx=0; idx<numkeys; idx++ )); do
+        key="$(jq --compact-output --monochrome-output --raw-output ".[$idx].key" <<< "$json")"
+        val="$(jq --compact-output --monochrome-output --raw-output ".[$idx].value" <<< "$json")"
         if (eval export "$key=$val" 2>/dev/null); then
             eval export "$key=$val"
             readonly "$key"
         else
             deps[$key]="$val"
         fi
-    done < <(jq --compact-output --monochrome-output --raw-output '.environment|keys[]' <<< "$deploy_json")
-
+    done
     for key in "${!deps[@]}"; do
         val="${deps[$key]}"
         eval export "$key=$val"
@@ -133,8 +138,11 @@ function deploy.__initGlobals()
     # ensure our log dir exists
     [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR" ||:
 
-    mapfile -t SKIP_WAIT < <(jq --compact-output --monochrome-output --raw-output '.skip_wait[]' <<< "$deploy_json" ||:)
-    readonly SKIP_WAIT
+    if [ "$(jq 'has("skip_wait")' <<< "$deploy_json")" = 'true' ]; then
+        mapfile -t SKIP_WAIT < <(jq --compact-output --monochrome-output --raw-output '.skip_wait[]' <<< "$deploy_json" ||:)
+    else
+        SKIP_WAIT=()
+    fi
 
     # verify our basic setup is good
     mapfile -t COMPLETION_MSG < <(jq --compact-output --monochrome-output --raw-output 'try .completion_msg[]' <<< "$deploy_json" ||:)
@@ -208,7 +216,7 @@ function deploy.cmdLineArgs()
     if [ ${opts['debug']:-0} -gt 0 ]; then
         {
             for i in "${!opts[@]}"; do
-               printf '%s: %s\n' $i "${opts[$i]}"
+               printf '%s: %s\n' "$i" "${opts[$i]}"
             done
             echo 'args:'
             for i in "$@"; do
@@ -268,11 +276,11 @@ function deploy.containerVersion()
     local fingerprint newline prefix production promoted
 
     # capture prefix up to registry
-    prefix="$(sed -Ee 's|^(\s+.*'$(registry.SERVER)'}).*$|\1|' <<< "$line")"
+    prefix="$(sed -Ee 's|^(\s+.*'"$(registry.SERVER)"'}).*$|\1|' <<< "$line")"
 
     newline="${line:${#prefix}}"   # strip prefix from line
     promoted="$newline"
-    orgimage="$(unset CONTAINER_TAG; eval echo $newline)"
+    orgimage="$(unset CONTAINER_TAG; eval "echo $newline")"
     production="$orgimage"
     fingerprint='<none>'
 
@@ -290,7 +298,7 @@ function deploy.containerVersion()
             fingerprint=$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"')
 
             # if the fingerprint exists, replace image tag with fingerprint
-            [ "$fingerprint" != 'null' ] && newline=${newline}':${CONTAINER_TAG:-'${fingerprint}'}'
+            [ "$fingerprint" != 'null' ] && newline="${newline}"':${CONTAINER_TAG:-'"${fingerprint}"'}'
 
             promoted="$(eval echo $newline)"
             production="$(unset CONTAINER_TAG; eval echo $newline)"
@@ -376,8 +384,8 @@ function deploy.down()
     sudo  sed -Ei -e 's|(:\?})|:-}|g' "$WORKSPACE_YAML"
 
     term.log 'INFO: bringing down containers to allow "workspace" to be refreshed\n' 'lt_magenta'
-    term.log '$docker-compose down\n' 'grey'
-    deploy.docker_compose down ||:
+    term.log '$docker-compose down --remove-orphans\n' 'grey'
+    deploy.docker_compose down --remove-orphans ||:
 
     return 0
 }
@@ -403,14 +411,14 @@ function deploy.fixupDCLineAfterRun()
 
     # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
     while read -r keyName; do
-        [ -z ${!keyName:-} ] && trap.die "unrecognized VERSION parameter $keyName used."
+        [ -z "${!keyName:-}" ] && trap.die "unrecognized VERSION parameter $keyName used."
         # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
-        line="$(sed -E 's|^(\s+.*\$\{'${keyName}':-)[^\}]+(}.*)$|\1'${!keyName}'\2|' <<< "$line")"
+        line="$(sed -E 's|^(\s+.*\$\{'"$keyName"':-)[^\}]+(}.*)$|\1'"${!keyName}"'\2|' <<< "$line")"
     done < <(awk '/([A-Z0-9]+_VERSION):-/ {sub(":.*","");print substr($0,2)}' RS='$' <<< "$line")
 
     if [ -z "${isConfig:-}" ] && [ "$(grep -cEs ':\?}' <<< "$line")" -gt 0 ]; then
         local indent="$(sed -Ee 's|^(\s+).*$|\1|' <<< "$line")"
-        line="${indent}$(eval echo $line)"
+        line="${indent}$(eval "echo $line")"
     fi
 
     echo "$line"
@@ -493,7 +501,7 @@ function deploy.isValidService()
 {
     local -r service=${1:?}
     
-    local result="$(lib.yamlToJson "$WORKSPACE_YAML" | jq --compact-output --monochrome-output --raw-output 'try .services|has("'${service}'")' )"
+    local result="$(lib.yamlToJson "$WORKSPACE_YAML" | jq --compact-output --monochrome-output --raw-output 'try .services|has("'"$service"'")' )"
 
     [ "${result:-}" != 'true' ] && return 1
     return 0
@@ -894,8 +902,31 @@ function deploy.waitForInitializationComplete()
     local container line
     local -i index=1
 
-
     term.log '\n'"INFO: waiting for ${#containers[*]} containers to complete their startup"'\n' 'white'
+
+    # check for containers that we skip
+    for container in "${containers[@]}"; do
+        [ "${container,,}" ] || continue                               # ignore invalid container
+        [ "${finished[${container,,}]:-}" ] && continue                # ignore if we already have this result
+
+
+        # ignore any that are not built with CBF (since they will not contain string we look for)
+        local isCBFcontainer="$(docker inspect "${container,,}" | jq --compact-output --monochrome-output '.[].Config.Labels|has("container.git.url") and has("version.cbf")')"
+        if [ "$isCBFcontainer" != 'true' ];then
+            printf '%02d. %s: skipping wait.\n' $(( index++ )) "${container^^}"
+            finished[$container]='0'
+            SKIP_WAIT+=( "$container" )
+            continue
+        fi
+
+        # ignore any that are defined in 'SKIP_WAIT'
+        if [ "${#SKIP_WAIT[*]}" -gt 0 ] && [ $(printf '%s\n' "${SKIP_WAIT[@]}" | grep -cs "$container") -gt 0 ]; then
+            printf '%02d. %s: skipping wait.\n' $(( index++ )) "${container^^}"
+            finished[$container]='0'
+            continue
+        fi
+    done
+
     while [ "${#finished[*]}" -lt "${#containers[*]}" ]; do
         # sleep 5 secs between scans
         sleep 5
@@ -903,21 +934,16 @@ function deploy.waitForInitializationComplete()
 
         # check all known containers
         for container in "${containers[@]}"; do
-            # ignore any that are defined in 'SKIP_WAIT'
-            if [ "${#SKIP_WAIT[*]}" -gt 0 ] && [ $(printf '%s\n' "${SKIP_WAIT[@]}" | grep -cs "$container") -gt 0 ] && [ -z "${finished[${container,,}]:-}" ]; then
-                printf '%02d. %s: skipping wait.\n' $(( index++ )) "${container^^}"
-                finished[$container]='0'
-            fi
+            [ "${container,,}" ] || continue                               # ignore invalid container
+            [ "${finished[${container,,}]:-}" ] && continue                # ignore if we already have this result
 
             # look for specific 'end of startup' string in logs
             local text="$(docker logs "${container,,}" 2>&1 | grep -s 'Finished executing startup' | head -1 ||: )"
             [ "$text" ] || continue                                        # ignore blank lines
-            [ "${container,,}" ] || continue                               # ignore invalid container
-            [ -z "${finished[${container,,}]:-}" ] || continue             # ignore if we already have this result
 
             # keep track of what has finished
             lines+=( "$(sed -Ee 's|^.+Finished executing startup scripts after ||' <<< "$text" | awk -F ':' '{ print ((($1 * 60) + $2) * 60) + $3 }')_${container,,}" )
-            [ "$(docker logs "${container,,}" 2>&1 | grep -sc '>>>>> issue while executing ' ||: )" -gt 0 ] && text='\e[33m'"$text"'\e[0m'
+            [ "$(docker logs "${container,,}" 2>&1 | grep -sc '>>>>> issue while executing ' ||: )" -gt 0 ] && text='\e[93m'"$text"'\e[0m'
             finished[${container,,}]="$text"
         done
 
@@ -926,7 +952,7 @@ function deploy.waitForInitializationComplete()
         for line in $(printf '%s\n' "${lines[@]}" | sort -t '_' -k 1n,2); do   # sort by time taken to finish startup
             container="${line##*_}"                                            # extract container name
             container="${container,,}"
-            printf '%02d. %s\n' $(( index++ )) "${finished[${container}]:-}"
+            printf '%02d. %b\n' $(( index++ )) "${finished[${container}]:-}"
             docker logs "${container}" >> "$run_log" 2>&1                      # grab the log
         done
     done

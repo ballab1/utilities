@@ -1,6 +1,18 @@
 TODO
 ```
 
+get working
+ - docker-search.py
+ 
+improve
+  deploy : 
+    - recognize 'secrets'
+    - recognize 'container_os' as none, or missing
+    - split app.setup: 
+    	move init function into deploy and call app.init
+    	move common functions into deploy and call app.common
+
+
 implement ability to create/update github webhook
  - also add graphql
 
@@ -122,6 +134,12 @@ Errors
 Done
 =============================================================
 ```
+01/18/2020
+  deploy : 
+    - recognize 'thirdparty_versions'
+    - reduce 'skip_wait' - auto include any which are not CBF (chack using docker labels)
+
+
 12/15/2019
 docker-utilities
     Unable to load libraries
