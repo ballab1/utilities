@@ -466,7 +466,7 @@ function docker-utilities.cmdLineArgs()
             retaglatest)
                 opts['cmd']='docker-utilities.retagLatest'
                 opts['isrunning']='docker.isRunning'
-                opts['message']="retag all 'dev' tagged imagges to 'latest' and push to $(registry.SERVER)"
+                opts['message']="retag all 'dev' tagged images to 'latest' and push to $(registry.SERVER)"
                 longOpts=''
                 shortOpts=''
                 argsCondition='$# -eq 1 || $# -eq 2'
