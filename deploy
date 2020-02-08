@@ -121,6 +121,7 @@ function deploy.__initGlobals()
     [[ -z "${HOST_IP:-}" || "${HOST_IP}" = *\ * ]] && trap.die 'HOST_IP is invalid or has not been configured. Please update the '\''environment'\'' section in deploy.yml'
     [ "${HOST_NAME:-}" ] || term.elog 'HOST_NAME has not been configured. Please update the '\''environment'\'' section in deploy.yml\n'
     [[ "${CFG_USER:-}" && "${CFG_NAME:-}" && "${CFG_EMAIL:-}" && "${HOST_IP:-}" && "${HOST_NAME:-}" ]] || trap.die 'Invalid configuration'
+    [[ "${CFG_USER:-}" != root ]] || trap.die 'Deploy of packages as root user is not permitted\n'
 
  
     readonly CFG_USER
@@ -525,11 +526,8 @@ function deploy.main()
 
     deploy.__initGlobals "${OPTS['base']}" "${OPTS['latest']:-}"
 
-
     [ -z "${OPTS['clean']:-}" ] || deploy.clean
     mkdir -p "$WORKSPACE_DIR" ||:
-
-    versions.data "$DEPLOY_YAML" "${OPTS['container_tag']:-}"
 
 
     if [ "${OPTS['init']:-}" ]; then
@@ -546,6 +544,9 @@ function deploy.main()
         deploy.docker_compose down ||:
         exit 0
     fi
+
+
+    versions.data "$DEPLOY_YAML" "${OPTS['container_tag']:-}"
 
     #  restart devops_container_environment  (performs configuration if needed)
     term.log '$deploy.restart 2>&1 | tee restart.log\n' 'grey'
@@ -658,9 +659,8 @@ function deploy.replaceIpAddresses()
     local -r host_ip=${2:?}
 
     if [ -e "$filename" ]; then
-        local -r ip_match_rgx='((1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])\.){3}(1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])'
-        local expr="s#${ip_match_rgx}#${host_ip}#g"
-        sudo sed -i -r -e "$expr" "$filename"
+        local expr='s|${HOST_IP}|'"${host_ip}"'|g'
+        sudo sed -i -e "$expr" "$filename"
     fi
 }
 export -f deploy.replaceIpAddresses

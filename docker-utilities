@@ -343,7 +343,7 @@ function docker-utilities.cmdLineArgs()
                 return 0;;
 
             -c|--credentials)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
                 opts['credentials']="$2"
                 shift 2;;
 
@@ -352,7 +352,7 @@ function docker-utilities.cmdLineArgs()
                 shift;;
 
             -u|--user)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
                 opts['user']="$2"
                 shift 2;;
 
@@ -1104,7 +1104,7 @@ function docker-utilities.getImage()
 #----------------------------------------------------------------------------------------------
 function docker-utilities.main()
 {
-    # define out 'GLOBALS'
+    # define our 'GLOBALS'
     declare -ir MAX_IMAGES=10
     declare -ir MAX_END_TIME=4294967295
     declare -ir MIN_START_TIME=0
@@ -1118,7 +1118,7 @@ function docker-utilities.main()
     eval "OPTS=( $1 )"
     readonly OPTS
     shift
-    [ "${OPTS['cmd']:-}" ] || trap.die 'invalid arguments' 
+    [ "${OPTS['cmd']:-}" ] || trap.die 'No command option provided.'
  
  
     if [ "${OPTS['isrunning']:-}" ]; then

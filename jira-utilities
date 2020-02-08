@@ -284,7 +284,10 @@ function jira-utilities.fields()
 #----------------------------------------------------------------------------------------------
 function jira-utilities.main()
 {
+    # define our 'GLOBALS'
     declare -A OPTS=()
+
+    # extract out options, and handle the common options
     eval "OPTS=( $1 )"
     readonly OPTS
     shift

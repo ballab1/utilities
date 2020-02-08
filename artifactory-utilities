@@ -321,7 +321,7 @@ function artifactory-utilities.deleteDockerImages()
 #----------------------------------------------------------------------------------------------
 function artifactory-utilities.main()
 {
-    # define out 'GLOBALS'
+    # define our 'GLOBALS'
     declare -A OPTS=()
 
 

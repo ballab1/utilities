@@ -1,39 +1,39 @@
 #!/bin/bash
 
 #----------------------------------------------------------------------------------------------
-function jenkins-utilities.usage()
+function confluence-utilities.usage()
 {
     local -i exit_status=${1:-1}
 
     cat >&2 << EOF
 Usage:
-    $PROGNAME [ -h|--help ] <repository> | <image> <image>
+    $PROGNAME [ -h|--help ] <repository>
 
     Common options:
         -h --help                             Display a basic set of usage instructions
         -u --user <username>                  Defaults to \${USERNAME:-\$USER}
         -c --credentials <credentials_file>   File container key/value pairs for user=pwd 
  
-    get info from GitHub
+    get info from Confluence
 
 EOF
     exit "$exit_status"
 }
 
 #----------------------------------------------------------------------------------------------
-function jenkins-utilities.cmdLineArgs()
+function confluence-utilities.cmdLineArgs()
 {
     # Parse command-line options into above variable
     local -r longoptions='help,Help,HELP,debug,user:,credentials:,base:,server:'
     local -r shortoptions='Hhdc:u:b:s:'
-    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$PROGNAME" -- "$@") || jenkins-utilities.usage $?
+    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$PROGNAME" -- "$@") || confluence-utilities.usage $?
     eval set -- "$options"
 
     local -A opts=(['base']="$(pwd)")
     [ ${DEBUG:-0} -ne 0 ] && opts['debug']=$DEBUG 
     while [ "${1:-}" ]; do
         case "${1,,}" in
-            -h|--h|--help|-help)  jenkins-utilities.usage 1;;
+            -h|--h|--help|-help)  confluence-utilities.usage 1;;
             -d|--d|--debug)       opts['debug']=1; shift;;
             -u|--u|--user)        opts['user']="$2"; shift 2;;
             -c|--c|--credentials) opts['credentials']="$2"; shift 2;;
@@ -62,7 +62,7 @@ function jenkins-utilities.cmdLineArgs()
 }
 
 #----------------------------------------------------------------------------------------------
-function jenkins-utilities.main()
+function confluence-utilities.main()
 {
     # define our 'GLOBALS'
     declare -A OPTS=()
@@ -79,8 +79,8 @@ function jenkins-utilities.main()
         export USERNAME="${OPTS['user']}"
         export USER="${OPTS['user']}"
 
-        export _JENKINS_USER="${OPTS['user']}"
-        export _JENKINS_CREDENTIALS=$(credentials.get jenkins)
+        export _CONFLUENCE_USER="${OPTS['user']}"
+        export _CONFLUENCE_CREDENTIALS=$(credentials.get confluence)
     fi
     export DEBUG=${OPTS['debug']:-0}
  
@@ -113,13 +113,13 @@ if [ ! -e "$loader" ]; then
     exit 1
 fi
 source "$loader"
-appenv.loader 'jenkins-utilities.main'
+appenv.loader 'confluence-utilities.main'
 
 
 declare -i status=0
 declare -a args
-args=( $( jenkins-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
-[ $status -ne 0 ] || jenkins-utilities.main "${args[@]:-}" && status=$? || status=$?
+args=( $( confluence-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
+[ $status -ne 0 ] || confluence-utilities.main "${args[@]:-}" && status=$? || status=$?
 
 declare -i elapsed=$(( $(date '+%s') - start ))
 [ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2

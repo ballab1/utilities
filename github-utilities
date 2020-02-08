@@ -268,7 +268,7 @@ function github-utilities.devopsRepos()
 #----------------------------------------------------------------------------------------------
 function github-utilities.main()
 {
-    # define out 'GLOBALS'
+    # define our 'GLOBALS'
     declare -ir MAX_IMAGES=10
     declare -ir MAX_END_TIME=4294967295
     declare -ir MIN_START_TIME=0

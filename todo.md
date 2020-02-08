@@ -1,9 +1,6 @@
 TODO
 ```
 
-get working
- - docker-search.py
- 
 improve
   deploy : 
     - recognize 'secrets'
