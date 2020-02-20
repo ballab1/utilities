@@ -475,7 +475,7 @@ function deploy.initialize()
 
     # create the folders which are mounted by containers (defined in docker-compose volumes)
     local -A service_tasks=()
-    for service_name in $(docker.services "$WORKSPACE_YAML"); do
+    for service_name in $(lib.yamlToJson "$WORKSPACE_YAML" | jq --compact-output --monochrome-output --raw-output '.services|keys[]?'); do
 
         # look for individual service tasks (to run later)
         local initFunction="${CONFIG_DIR}/${service_name}.setup"
@@ -998,6 +998,9 @@ fi
 source "$loader"
 appenv.loader 'deploy.main'
 
+lib.checkAppVersion 'docker-compose' '1.18.0'
+#lib.checkAppVersion 'jq' '1.5'
+#lib.checkAppVersion 'curl' '7.40.0'
 
 declare -i status=0
 declare -a args
