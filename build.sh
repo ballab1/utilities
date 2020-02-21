@@ -919,6 +919,13 @@ fi
 source "$loader"
 appenv.loader 'build.main'
 
+
+#lib.checkAppVersion 'docker-compose' '1.18.0'
+#lib.checkAppVersion 'docker' '17.12.0'
+#lib.checkAppVersion 'jq' '1.5'
+#lib.checkAppVersion 'curl' '7.40.0'
+
+
 declare -i status=0
 declare -a args
 args=( $( build.cmdLineArgs "$@" ) ) && status=$? || status=$?

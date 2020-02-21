@@ -590,12 +590,12 @@ function deploy.populateSecrets()
         mkdir -p "$(dirname "$secrets_dir")"
         git.clone "$OPEN_SECRETS_REPO" "$secrets_dir"
 
-    elif [ -d "${CFG_USER_SECRETS}" ] && [ "$(readlink -f "$CFG_USER_SECRETS")" != "$(readlink -f "$secrets_dir")" ]; then
+    elif [ -d "$CFG_USER_SECRETS" ] && [ "$(readlink -f "$CFG_USER_SECRETS")" != "$(readlink -f "$secrets_dir")" ]; then
         term.log 'populating '"$secrets_dir"' from local secrets dir\n'
         mkdir -p "$secrets_dir"
-        cp -r "${CFG_USER_SECRETS}"/* "$secrets_dir"/
+        cp -r "$CFG_USER_SECRETS"/* "$secrets_dir"/
 
-    elif git.lsRemote "${CFG_USER_SECRETS}" &> /dev/null ; then
+    elif git.lsRemote "$CFG_USER_SECRETS" &> /dev/null ; then
         term.log 'populating '"$secrets_dir"' from git secrets\n'
         mkdir -p "$(dirname "$secrets_dir")"
         git.clone "$CFG_USER_SECRETS" "$secrets_dir" --quiet
@@ -999,6 +999,7 @@ source "$loader"
 appenv.loader 'deploy.main'
 
 lib.checkAppVersion 'docker-compose' '1.18.0'
+#lib.checkAppVersion 'docker' '17.12.0'
 #lib.checkAppVersion 'jq' '1.5'
 #lib.checkAppVersion 'curl' '7.40.0'
 
