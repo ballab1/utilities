@@ -1460,7 +1460,7 @@ function docker-utilities.retagImages()
         local image target
         for image in "${images[@]}"; do
             image=$(eval echo $image)
-            target="$(docker.baseImage "$image"):$to"
+            target="$(docker.baseImage "$image"):${to//\//-}"
             docker-utilities.run docker tag "$image" "$target"
             docker-utilities.run docker rmi "$image" || :
         done
@@ -1476,10 +1476,10 @@ function docker-utilities.retagLatest()
     local image target
     local -a images=()
     while read -r image; do
-        target="$(docker.baseImage "$image"):$to"
+        target="$(docker.baseImage "$image"):${to//\//-}"
         images+=( "$target" )
         docker-utilities.run docker tag "$image" "$target"
-    done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep "$from")
+    done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep "${from//\//-}")
 
     docker.pushRetained 1 "${images[@]}"
     docker-utilities.run docker rmi "${images[@]}"
