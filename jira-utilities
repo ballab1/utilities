@@ -154,9 +154,9 @@ function jira-utilities.cmdLineArgs()
             help|-h|--help)
                 if [ "${opts['cmd']:-}" ]; then
                     if [ "${opts['cmd']}" = 'jira-utilities.catalogIterator' ]; then
-                        opts['oper']="${opts['oper']:17}"
+                        opts['oper']="${opts['oper']:15}"
                     else
-                        opts['oper']="${opts['cmd']:17}"
+                        opts['oper']="${opts['cmd']:15}"
                     fi
                     while [ $# -gt 0 ]; do
                         shift

@@ -11,6 +11,7 @@ Usage:
     $PROGNAME [ help [ subcommand ]
               | deleteArtifacts    <artifact> [ <artifact> [ <artifact> ]...]
               | deleteDockerImages <aqlFile> [  <aqlFile> [  <aqlFile> ]...]
+              | getArtifacts    <artifact> [ <artifact> [ <artifact> ]...]
               | listRepos
               | saveArtifact 
                    -f --file <filename>   Name of file to upload
@@ -28,9 +29,10 @@ Commands:
     help                  Display a basic set of usage instructions
     deleteArtifacts       Delete one or more artifacts, where <artifact> is its name  
     deleteDockerImages    Delete one or more tags - see 'usage examples'
-    listRepos             Get one or more images from some remote, and push to the default repository
-    saveArtifact          Get one or more images from some remote, and push to the default repository
-    saveCBF               Get one or more images from some remote, and push to the default repository
+    getArtifacts          Get one or more artifacts, where <artifact> is its name  
+    listRepos             List repositories
+    saveArtifact          Save an Artifact to a specified repository
+    saveCBF               Save CBF to Artifactory
     search                Display the manifest for an image
 
 EOF
@@ -44,31 +46,29 @@ function artifactory-utilities.helpFor_deleteArtifacts()
 
     Delete one or more artifacts, where <artifact> is its name  
 
-#
-# examples of Artifactory artifact definitions
-#
-#declare -a artifacts=(
-# specific CBF versions
-#    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-1-g62e4fad.tar.gz
-#    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-ge6e068c.tar.gz
-#    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-gfc1d30a.tar.gz
-#  specific files
-#    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/cpan/cpanimus/app-cpanimus.1.7044.pm
-#    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/cpan/app-cpanimus.1.7044.pm
-#    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/perl-carton/app-cpanimus.1.7044.pm
-#  specify folders
-#    cyclone-devops-mw/cyclone-devops/cyclone-devops
-#    cyclone-devops-mw/cyclone-devops/phpMyAdmin
-#    cyclone-devops-mw/cyclone-devops/nginx
-#  specify docker images
-#    cyclone-dockerv2-local/devops/alpine/nginx-base/1.15.4/latest
-#    cyclone-dockerv2-local/devops/alpine/nginx-base/1.15.4/8aeabe99ace35f4eae9b01f30e91c726daa38f60a1ecf0aa3fb6d32dedd1e42b
-#    cyclone-dockerv2-local/devops/alpine/nagios/4.4.2/latest
-#    cyclone-dockerv2-local/devops/alpine/nagios/4.4.2/f6cec2d3ae004c570d8633a16d7ead32e7d308014f40d6c6f1f0d0c31276a433
-#)
-# crrently 'in use' artifacts:
-#  cyclone-devops/cyclone-devops/container_build_framework/v3.1-2-gd585ce1.tar.gz
-#  cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-gdca205f.tar.gz
+ examples of Artifactory artifact definitions
+
+ specific CBF versions:
+    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-1-g62e4fad.tar.gz
+    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-ge6e068c.tar.gz
+    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-gfc1d30a.tar.gz
+  specific files:
+    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/cpan/cpanimus/app-cpanimus.1.7044.pm
+    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/cpan/app-cpanimus.1.7044.pm
+    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/perl-carton/app-cpanimus.1.7044.pm
+  specify folders:
+    cyclone-devops-mw/cyclone-devops/cyclone-devops
+    cyclone-devops-mw/cyclone-devops/phpMyAdmin
+    cyclone-devops-mw/cyclone-devops/nginx
+  specify docker images:
+    cyclone-dockerv2-local/devops/alpine/nginx-base/1.15.4/latest
+    cyclone-dockerv2-local/devops/alpine/nginx-base/1.15.4/8aeabe99ace35f4eae9b01f30e91c726daa38f60a1ecf0aa3fb6d32dedd1e42b
+    cyclone-dockerv2-local/devops/alpine/nagios/4.4.2/latest
+    cyclone-dockerv2-local/devops/alpine/nagios/4.4.2/f6cec2d3ae004c570d8633a16d7ead32e7d308014f40d6c6f1f0d0c31276a433
+
+ crrently 'in use' artifacts:
+  cyclone-devops/cyclone-devops/container_build_framework/v3.1-2-gd585ce1.tar.gz
+  cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-gdca205f.tar.gz
 
 EOF
 }
@@ -80,6 +80,15 @@ function artifactory-utilities.helpFor_deleteDockerImages()
 
     Delete one or more artifacts, where <artifact> is its name  
 
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function artifactory-utilities.helpFor_getArtifacts()
+{
+    cat >&2 << EOF
+
+    Get one or more artifacts, where <artifact> is its name  
 EOF
 }
 
@@ -132,6 +141,12 @@ EOF
 
 #----------------------------------------------------------------------------------------------
 #----------------------------------------------------------------------------------------------
+function artifactory-utilities.cleanUpOnExit()
+{
+    [ "${TMP_DIR:-}" ] && [ "${TMP_DIR:-}" != '/' ] && [ -e "${TMP_DIR:-}" ] && rm -rf "${TMP_DIR:-}"
+}
+
+#----------------------------------------------------------------------------------------------
 function artifactory-utilities.cmdLineArgs()
 {
     local argsCondition longOpts='' options shortOpts=''
@@ -146,9 +161,9 @@ function artifactory-utilities.cmdLineArgs()
             help|-h|--help)
                 if [ "${opts['cmd']:-}" ]; then
                     if [ "${opts['cmd']}" = 'artifactory-utilities.catalogIterator' ]; then
-                        opts['oper']="${opts['oper']:17}"
+                        opts['oper']="${opts['oper']:22}"
                     else
-                        opts['oper']="${opts['cmd']:17}"
+                        opts['oper']="${opts['cmd']:22}"
                     fi
                     while [ $# -gt 0 ]; do
                         shift
@@ -188,6 +203,12 @@ function artifactory-utilities.cmdLineArgs()
                 argsCondition='$# -eq 1'
                 shift;;
 
+            getartifacts)
+                opts['cmd']='artifactory-utilities.getArtifacts'
+                opts['message']="get artifacts from $(registry.SERVER)"
+                argsCondition='$# -gt 0'
+                shift;;
+
             listrepos)
                 opts['cmd']='artifactory-utilities.listRepos'
                 opts['message']="list top level repos on $(registry.SERVER)"
@@ -197,9 +218,9 @@ function artifactory-utilities.cmdLineArgs()
             saveartifact)
                 opts['cmd']='artifactory-utilities.saveArtifact'
                 opts['message']="save an artifact to a repo on $(artifactory.SERVER)"
-                longOpts='file:repo:'
+                longOpts='file:,repo:'
                 shortOpts='f:r:'
-                argsCondition='$# -eq 1'
+                argsCondition='$# -eq 0'
                 shift;;
 
             savecbf)
@@ -318,6 +339,15 @@ function artifactory-utilities.deleteDockerImages()
     return 0
 }
 
+#--------------------------------------------------------------------
+function artifactory-utilities.getArtifacts()
+{
+    local ref;
+    for ref in "$@"; do
+        artifactory.getArtifact "$ref" ||: 
+    done
+}
+
 #----------------------------------------------------------------------------------------------
 function artifactory-utilities.main()
 {
@@ -431,12 +461,6 @@ function artifactory-utilities.saveArtifact
     artifactory.uploadFile "${target}/$(basename "$uploadFile")"  "$uploadFile"
 }
 
-#----------------------------------------------------------------------------------------------
-function artifactory-utilities.cleanUpOnExit()
-{
-    [ "${TMP_DIR:-}" ] && [ "${TMP_DIR:-}" != '/' ] && [ -e "${TMP_DIR:-}" ] && rm -rf "${TMP_DIR:-}"
-}
-
 #--------------------------------------------------------------------
 function artifactory-utilities.saveCBF
 {
@@ -480,6 +504,7 @@ function artifactory-utilities.usage()
 
     local -A contextHelp=( ['deletearetifacts']=artifactory-utilities.helpFor_deleteArtifacts
                            ['deletedockerimages']=artifactory-utilities.helpFor_deleteDockerImages
+                           ['getaretifacts']=artifactory-utilities.helpFor_getArtifacts
                            ['listrepos']=artifactory-utilities.helpFor_listRepos
                            ['saveartifact']=artifactory-utilities.helpFor_saveArtifact
                            ['savecbf']=artifactory-utilities.helpFor_saveCBF

@@ -41,11 +41,11 @@ class KProducer(object):
             A new instance of the KProducer class
         """
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.WARNING)
 
         # create file handler which logs even debug messages
         fh = logging.FileHandler(os.path.join(tempfile.gettempdir(), 'spam.log'))
-        fh.setLevel(logging.DEBUG)
+        fh.setLevel(logging.WARNING)
 
         # create console handler with a higher log level
         ch = logging.StreamHandler()
