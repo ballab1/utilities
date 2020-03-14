@@ -47,6 +47,16 @@ EOF
 }
 
 #----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_issue()
+{
+    cat >&2 << EOF
+
+    list all fields for a specific issue
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
 function jira-utilities.helpFor_projectInfo()
 {
     cat >&2 << EOF
@@ -182,6 +192,19 @@ function jira-utilities.cmdLineArgs()
                 opts['user']="$2"
                 shift 2;;
 
+            -p|--projectkey)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                opts['key']="$2^^"
+                shift 2;;
+
+            -s|--server)
+                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                case ${2^^} in
+                    PROD|TEST|STAGE1|STAGE2) opts['server']="$(jira.JIRA_${2^^})";;
+                    *)                       opts['server']="$2";;
+                esac
+                shift 2;;
+
             fields)
                 opts['cmd']='jira-utilities.fields'
                 opts['message']="display fields from $(jira.SERVER)"
@@ -190,15 +213,21 @@ function jira-utilities.cmdLineArgs()
                 argsCondition='$# -le 1'
                 shift;;
 
+            issue)
+                opts['cmd']='jira-utilities.issue'
+                opts['message']="get all fields for a spcific issue"
+                argsCondition='$# -eq 1'
+                shift;;
+
             jiraproduction)
                 opts['cmd']='jira-utilities.checkSuppportMaterialsFolders'
-                opts['message']="checn JIRA support materials folders"
+                opts['message']="check JIRA support materials folders"
                 longOpts='mode'
                 shortOpts='m'
                 argsCondition='$# -eq 2'
                 shift;;
 
-            project)
+            projectinfo)
                 opts['cmd']='jira-utilities.projectInfo'
                 opts['message']="display project from $(jira.SERVER)"
                 longOpts='mode'
@@ -239,6 +268,12 @@ function jira-utilities.cmdLineArgs()
 
         while [ "${1:-}" ]; do
             case "${1,,}" in
+                -m|--mode)
+                    [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                    opts['mode']="$2"
+                    shift 2
+                    ;;
+
                 -o|--out)
                     [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
                     opts['log']="$2"
@@ -282,6 +317,13 @@ function jira-utilities.fields()
 }
 
 #----------------------------------------------------------------------------------------------
+function jira-utilities.issue()
+{
+    local issue="${1:?}"
+    jira.issue "$issue"
+}
+
+#----------------------------------------------------------------------------------------------
 function jira-utilities.main()
 {
     # define our 'GLOBALS'
@@ -292,7 +334,9 @@ function jira-utilities.main()
     readonly OPTS
     shift
 
-    [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
+    [ "${OPTS['credentials']:-}" ] && export __SECRETS_FILE="${OPTS['credentials']}"
+    [ "${OPTS['server']:-}" ] && export _JIRA_SERVER="${OPTS['server']}"
+    [ "${OPTS['key']:-}" ] && export _JIRA_PROJECT="${OPTS['key']}"
     if [ "${OPTS['user']:-}" ]; then
         export _JIRA_USER="${OPTS['user']}"
         export _JIRA_CREDENTIALS=$(credentials.get jira)
@@ -353,14 +397,16 @@ function jira-utilities.main()
 #----------------------------------------------------------------------------------------------
 function jira-utilities.projectInfo()
 {
-    local project="${1:-MDT}"
+    local default="${OPTS['key']:-MDT}"
+    local project="${1:-$default}"
     jira.projectInfo "$project"
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.remoteLinks()
 {
-    local project="${1:-MDT}"
+    local default="${OPTS['key']:-MDT}"
+    local project="${1:-$default}"
     jira.remoteLinks "$project"
 }
 
@@ -402,7 +448,8 @@ function jira-utilities.usage()
 
     local -A contextHelp=( ['fields']=jira-utilities.helpFor_fields
                            ['jiraproduction']=jira-utilities.helpFor_checkSuppportMaterialsFolders
-                           ['project']=jira-utilities.helpFor_projectInfo
+                           ['issue']=jira-utilities.helpFor_issue
+                           ['projectinfo']=jira-utilities.helpFor_projectInfo
                            ['remotelinks']=jira-utilities.helpFor_remoteLinks
                            ['search']=jira-utilities.helpFor_search
             )
