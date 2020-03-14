@@ -680,10 +680,8 @@ function deploy.restart()
     deploy.removeCBFlogs
 
     # restart our environment
-    if ! deploy.restartContainers "$latest"; then
-        term.log 'Failed to succussfully deploy container services.\n' 'white'
-        exit 0
-    fi
+    deploy.restartContainers "$latest"
+
 
     local -r run_log="${WORKSPACE_DIR}/run.log"
     deploy.waitForInitializationComplete "$WORKSPACE_YAML" "$run_log"
@@ -727,7 +725,10 @@ function deploy.restartContainers()
     term.log 'docker-compose --file '"$WORKSPACE_YAML"' up --detach\n' 'grey'
     # docker-compose v1.17.0 does not like '--detach'!
     deploy.docker_compose up -d  && status=$? || status=$?
-    [ $status -eq 0 ] || return $status
+    if [ $status -ne 0 ]; then
+        term.log 'Failed to succussfully deploy container services.\n' 'white'
+        exit 1
+    fi
 
     # fixup docker-compose.yml to reflect the image versions in use
     if [ "${latest:-}" = 'HEAD' ]; then
