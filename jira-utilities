@@ -9,20 +9,15 @@ function jira-utilities.helpFor_general()
 Usage:
     $PROGNAME [ help [ subcommand ]
               | fields                Dump JSON field info
-              | issue <issue-id>      get all fields for a specific issue
               | jiraProduction        check Support Materials Folders
               | projectInfo           Dump JSON project info
               | remoteLinks
-              | search <jql_sub>      Dump JQL search results from <jql_sub>
+              | search <jql_sub>      Dump JQL search results ffrom <jql_sub>
 
     Common options:
         -h --help              Display a basic set of usage instructions
         -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
         -c --credentials <credentials_file>   File container key/value pairs for user=pwd
-        -p --project <project_key>            project key
-                                                ('MDT' if not specified)
-        -s --server <jira_server>             either URL of jira server or symbolic name { PROD TEST STAGE1 STAGE2 }
-                                               (jira production: https://jira.cec.lab.emc.com:8443/ if not specified)
         -o --out               save info to 'results.json'
 
     get info from JIRA

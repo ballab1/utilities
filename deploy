@@ -461,6 +461,15 @@ function deploy.fixupDCLineBeforeRun()
 }
 
 #----------------------------------------------------------------------------------------------
+# parse all BASH tokens/variables from a file
+function deploy.getTokens() {
+  local file="${1:?}"
+
+  ########    | *removeUnwantedLines*      | *removeTrailingSpaces, separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*
+  cat "$file" | grep -vE '^((\s*)|(#.*))$' | sed -E -e 's|\s+$||'   -e 's|\$|\n$|g' | grep -vE '^((\s*)|(#.*))$' | grep '\$'        | sed -E -e 's|^\$\{?||' -e 's|"||' -e 's|\}.*$||' -e 's|:-|=|' -e 's|:|=|' -e 's|^([^=]+)=?$|\1=?|'
+}
+
+#----------------------------------------------------------------------------------------------
 # setup workspace if it does not exist
 function deploy.initialize()
 {
@@ -469,6 +478,7 @@ function deploy.initialize()
 
 
     local json="$(lib.yamlToJson "$WORKSPACE_YAML")"
+    [ $? -ne 0 ] && trap.die "Failed to parse $WORKSPACE_YAML"
     local -ri num_secrets=$(jq --compact-output --monochrome-output '.services[]|select(has("secrets"))|.secrets[]' <<< "$json" | wc -l)
     [ "$num_secrets" -eq 0 ] || deploy.populateSecrets "$SECRETS_DIR"
 
@@ -877,9 +887,16 @@ function deploy.verifyEnvironmentForFile()
 
     local var
     local -a unknown=()
+
+    # scan file for BASH tokens of form: ${TOKEN} or ${TOKEN:-default} or ${TOKEN:?}
     while read -r var; do
-        [ -z "${!var:-}" ] && unknown+=( "$var" )
-    done < <(grep -v '\s*#'  "$file" | grep -F ':?}' | sed -E -e 's|.*\$\{||' -e 's|:\?\}.*$||' | sort -u ||: )
+        # ignore tokens which have a default value
+        [ $(grep -c '?' <<< "$var") -ne 0 ] || continue
+
+        var="${var%%=*}"                             # extract token
+        [ "${var:-}" ] || continue                   # ignore if null
+        [ -z "${!var:-}" ] && unknown+=( "$var" )    # add to 'unknown' unless TOKEN exists in our ENV
+    done < <(deploy.getTokens "$file" | grep -Ev 'CONTAINER_TAG|DEV_TEAM' | sort -u ||: )
 
     if [ ${#unknown[*]} -gt 0 ]; then
         trap.die 'The following environment variables are undefined:'$(printf '\n    %s' "${unknown[@]}")
