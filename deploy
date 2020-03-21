@@ -682,7 +682,6 @@ function deploy.restart()
     # restart our environment
     deploy.restartContainers "$latest"
 
-
     local -r run_log="${WORKSPACE_DIR}/run.log"
     deploy.waitForInitializationComplete "$WORKSPACE_YAML" "$run_log"
 
@@ -806,6 +805,7 @@ function deploy.updateDockerCompose()
     esac
 
 
+    local -i status
     local -a services="$(lib.yamlToJson "$src_yaml" | jq --compact-output --monochrome-output --raw-output '.services|keys[]')"
     local tmp_file="${dst_yaml#.*}.tmp"
     (
@@ -836,6 +836,7 @@ function deploy.updateDockerCompose()
             fi
         done < "$src_yaml"
     ) > "$tmp_file"
+    [ $? -ne 0 ] && trap.die "Failed to process file: $dst_yaml"
 
     # if there are no changes, delete tmp file
     if [ "$(lib.fileSha256 "$dst_yaml")" = "$(lib.fileSha256 "$tmp_file")" ]; then
