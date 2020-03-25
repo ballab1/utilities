@@ -344,7 +344,7 @@ function artifactory-utilities.getArtifacts()
 {
     local ref;
     for ref in "$@"; do
-        artifactory.getArtifact "$ref" ||: 
+        artifactory.GET "$ref" ||: 
     done
 }
 
