@@ -556,7 +556,8 @@ function deploy.main()
     fi
 
 
-    versions.data "$DEPLOY_YAML" "${OPTS['container_tag']:-}"
+    versions.data "$DEPLOY_YAML" "${OPTS['latest']:-}"
+
 
     #  restart devops_container_environment  (performs configuration if needed)
     term.log '$deploy.restart 2>&1 | tee restart.log\n' 'grey'
