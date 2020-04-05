@@ -156,7 +156,7 @@ function deploy.clean()
 {
     local network
     # check networks to determine if there are running containers
-    local -a networks=( $(lib.yamlToJson docker-compose.yml | jq --compact-output --monochrome-output --raw-output '.networks|try .[].name' ||:)
+    local -a networks=( $(lib.yamlToJson "$CONFIG_YAML" | jq --compact-output --monochrome-output --raw-output '.networks|try .[].name' ||:)
                         "$(basename "${WORKSPACE_DIR}")_default"
                        )
     for network in "${networks[@]}"; do
@@ -691,7 +691,7 @@ function deploy.restart()
     deploy.removeCBFlogs
 
     # restart our environment
-    deploy.restartContainers "$latest"
+    deploy.restartContainers "$latest" || exit 1
 
     local -r run_log="${WORKSPACE_DIR}/run.log"
     deploy.waitForInitializationComplete "$WORKSPACE_YAML" "$run_log"
