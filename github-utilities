@@ -5,7 +5,7 @@ function github-utilities.helpFor_general()
 {
     cat >&2 << EOF
 Usage:
-    $PROGNAME [ -h|--help ] <repository> | <image> <image>
+    $PROGNAME [ -h|--help ] | orgrepoinfo | orgrepos | orgteams | teammembers | teamrepos | userinfo
 
     Common options:
         -h --help                             Display a basic set of usage instructions
@@ -14,132 +14,103 @@ Usage:
  
     get info from GitHub
 
+       orgRepos <org>             get the names of all repos in a given org
+       orgRepoInfo <org> <repo>
+       orgTeams <org>             get the names of all teams in a given org
+       teammembers <teamId>       get the names of all members of given team
+       teamrepos <teamid>
+       userinfo  <user>
 EOF
     return 1
 }
 
 #----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_clean()
+function github-utilities.helpFor_orgRepoCollaborators()
 {
     cat >&2 << EOF
 
 Usage:
-    $PROGNAME clean
-
-        remove old images and stopped containers then display a list of existing containers
-
-EOF
-}
-
-#----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_delete()
-{
-    cat >&2 << EOF
-
-Usage:
-    $PROGNAME delete [ --max <numberOfImages>
-                     | --start startTime [ --end endTime ] [ --keepTags ] ] <regex>[:<regex>] [ <regex>[:<regex>] [ <regex>[:<regex>] [...]]]
-                     | image@digest [ image@digest ] [ image@digest ]
-                [ -q|--quiet ] [ -y|--no_confirm_delete ]
-
-        Delete one or more images and/or repos by specifying <regex>:<regex>
-              --keepTags    : delete a range of images in a repo by specifying "max # images" + keepTags
-              --max         : delete a range of images in a repo by specifying "max # images"
-              --start       : delete a range of images in a repo by specifying [start] <  > [end]
-                            : delete images by specifying image@digest
-
-    Common options:
-        -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
-        -c --credentials <credentials_file>   File container key/value pairs for user=pwd
-        -q --quiet              Confirm action, otherwise do not delete anything
-        -y --no_confirm_delete  Confirm action, otherwise do not delete anything
-
-
-    examples:
-            delete an image by specifying image@sha256:digest
-            delete specific images across multiple repos by specifying <regex>:<regex>
-              delete an image by specifying image:tag
-              delete a range of images in a repo by specifying image:<regex>
-              delete a repo by specifying image
-              delete a repo by specifying image:*
-              delete multiple repos by specifying <regex>
-              delete images in all repos matching *:tag
-            delete a range of images in a repo by specifying "max # images"
-            delete a range of images in a repo by specifying "max # images" + keepTags
-            delete a range of images in a repo by specifying [start]< createTime >[end]
-
-NOTE: a log file is always created when using 'delete'
-
-EOF
-}
-
-#----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_deleteTagInSpecificRepo()
-{
-    cat >&2 << EOF
-
-Usage:
-    $PROGNAME deleteTag <regex>[:<regex>]
-
-    delete Tag In Specific Repo
-        delete one or more tags matching <regex>:tag from specifc repo
-
-NOTE: a log file is always created when using 'deleteTag'
-
-EOF
-}
-
-#----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_digests()
-{
-    cat >&2 << EOF
-
-Usage:
-    $PROGNAME digests <repoName>
+    $PROGNAME orgRepoCollaborators <org> <repo>
     
-    display the digests and times of all images in a repository
+    get the names of all collaborators for a given repo in an org
 
 EOF
 }
 
 #----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_getImage()
+function github-utilities.helpFor_orgRepoInfo()
 {
     cat >&2 << EOF
 
 Usage:
-    $PROGNAME getRemoteImage <imageName> [ <imageName> [ <imageName> [ ... ]]]
-
-        getremoteimage    Get one or more images from some remote, and push to the default repository
-
-    Note: 'getImage' is an alias for 'getRemoteImage'
-
-EOF
-}
-
-#----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_manifests()
-{
-    cat >&2 << EOF
-
-Usage:
-    $PROGNAME manifests <imageName>
+    $PROGNAME orgRepoInfo <org> <repo>
     
-    display the manifest for an image
+    get the names of all repos in a given org
 
 EOF
 }
 
 #----------------------------------------------------------------------------------------------
-function github-utilities.helpFor_pushImage()
+function github-utilities.helpFor_orgRepos()
 {
     cat >&2 << EOF
 
 Usage:
-    $PROGNAME pushImage [ --fingerprint  ] <imageName> [ <imageName> [ <imageName> [ ... ]]]
+    $PROGNAME orgRepos <org>
     
-    push a retained image
-       when 'fingerprint' is specified the  associated fingerprint tag (if detected) is pushed
+    get the names of all repos in a given org
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.helpFor_orgTeams()
+{
+    cat >&2 << EOF
+
+Usage:
+    $PROGNAME orgTeams <org>
+    
+    get the names of all teams in a given org
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.helpFor_teammembers()
+{
+    cat >&2 << EOF
+
+Usage:
+    $PROGNAME teammembers <org>
+    
+    get the names of all members of given team
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.helpFor_teamRepos()
+{
+    cat >&2 << EOF
+
+Usage:
+    $PROGNAME teamRepos <teamId>
+    
+    get the names of all repos in a given org
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.helpFor_userinfo()
+{
+    cat >&2 << EOF
+
+Usage:
+    $PROGNAME userinfo <user>
+    
+    get the names of all repos in a given org
 
 EOF
 }
@@ -150,7 +121,7 @@ function github-utilities.cmdLineArgs()
     local argsCondition longOpts='' options shortOpts=''
     
     local -A opts=(['base']="$(pwd)")
-    [ ${DEBUG:-0} -ne 0 ] && opts['debug']=$DEBUG 
+    [ "${DEBUG:-0}" -ne 0 ] && opts['debug']=$DEBUG 
 
     while [ "${1:-}" ]; do
         case "${1,,}" in
@@ -185,6 +156,48 @@ function github-utilities.cmdLineArgs()
                 opts['user']="$2"
                 shift 2;;
 
+            orgrepocollaborators)
+                opts['cmd']='github-utilities.orgrepocollaborators'
+                opts['message']="get list of collaborators for a given repo within an org"
+                argsCondition='$# -eq 2'
+                shift;;
+ 
+            orgrepoinfo)
+                opts['cmd']='github-utilities.orgrepoinfo'
+                opts['message']="get info a given repo within an org"
+                argsCondition='$# -eq 2'
+                shift;;
+ 
+            orgrepos)
+                opts['cmd']='github-utilities.orgrepos'
+                opts['message']="list repos for a given org"
+                argsCondition='$# -eq 1'
+                shift;;
+ 
+            orgteams)
+                opts['cmd']='github-utilities.orgteams'
+                opts['message']="list teams for a given org"
+                argsCondition='$# -eq 1'
+                shift;;
+ 
+            teammembers)
+                opts['cmd']='github-utilities.teammembers'
+                opts['message']="list the members in a given team"
+                argsCondition='$# -eq 1'
+                shift;;
+ 
+            teamrepos)
+                opts['cmd']='github-utilities.teamrepos'
+                opts['message']="list the members in a given team"
+                argsCondition='$# -eq 1'
+                shift;;
+ 
+            userinfo)
+                opts['cmd']='github-utilities.userinfo'
+                opts['message']="list the members in a given team"
+                argsCondition='$# -eq 1'
+                shift;;
+ 
             *)
                 break;;
         esac
@@ -222,10 +235,10 @@ function github-utilities.cmdLineArgs()
     fi
 
     # show args
-    if [ ${opts['debug']:-0} -gt 0 ]; then
+    if [ "${opts['debug']:-0}" -gt 0 ]; then
         {
             for i in "${!opts[@]}"; do
-               printf '%s: %s\n' $i "${opts[$i]}"
+               printf '%s: %s\n' "$i" "${opts[$i]}"
             done
             echo 'args:'
             for i in "$@"; do
@@ -235,48 +248,80 @@ function github-utilities.cmdLineArgs()
         } >&2
     fi
 
-    if [ "${argsCondition:-}" ]; then
+
+    if [ ${argsCondition:-} ]; then
         $(eval "[[ $argsCondition ]]") || trap.die 'invalid arguments!'
     fi
 
-    appenv.results $(github-utilities.removeRegistryReference "$@")
+    appenv.results "$@"
 
     [ -z "${opts['message']:-}" ] || term.elog "${opts['message']} : $*"'\n' 'grey'
     return 0
 }
 
 #----------------------------------------------------------------------------------------------
-function github-utilities.devopsRepos()
+function github-utilities.orgrepocollaborators()
 {
-    local -A OPTS
-    eval OPTS=( $1 )
-    readonly OPTS
-    shift
+    local -r org="${1:?}"
+    local -r repo="${2:?}"
 
-    local loc="${OPTS['base']}"
-    mkdir -p "$loc" ||:
+    github.repoCollaborators "$org" "$repo"
+}
 
-    local org repoId repoName teamId teamName line
-    local -i status
-    echo "Starting process $$ at $(TZ=New_York date)"
-    echo "user: $OPTS['user']"
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgrepoinfo()
+{
+    local -r org="${1:?}"
+    local -r repo="${2:?}"
 
-    (github.orgRepos Devops > "${loc}/Devops.repos.json") && status=$? || status=$?
-    echo
+    github.orgRepoInfo "$org" "$repo"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgrepos()
+{
+    local -r org="${1:?}"
+
+    github.orgRepos "$org"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgteams()
+{
+    local -r org="${1:?}"
+
+    github.orgTeams "$org"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.teammembers()
+{
+    local -ri teamId="${1:?}"
+
+    github.teamMembers "$teamId"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.teamrepos()
+{
+    local -ri teamId="${1:?}"
+
+    github.teamRepos "$teamId"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.userinfo()
+{
+    local -r user="${1:?}"
+
+    github.userInfo "$user"
 }
 
 #----------------------------------------------------------------------------------------------
 function github-utilities.main()
 {
     # define our 'GLOBALS'
-    declare -ir MAX_IMAGES=10
-    declare -ir MAX_END_TIME=4294967295
-    declare -ir MIN_START_TIME=0
-
     declare -A OPTS=()
-    declare -A IMAGES_TO_DELETE=()
-    declare -A REPO_DIGESTS=()
-
 
     # extract out options, and handle the common options
     eval "OPTS=( $1 )"
@@ -284,10 +329,10 @@ function github-utilities.main()
     shift
     [ "${OPTS['cmd']:-}" ] || trap.die 'invalid arguments' 
  
- 
-    if [ "${OPTS['isrunning']:-}" ]; then
-        "${OPTS['isrunning']}" || trap.die 'Docker is not running'
-    fi
+    {
+        echo "Starting process $$ at $(TZ=New_York date)"
+        echo "user: ${OPTS['user']}"
+    }  >&2
 
     [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
     if [ "${OPTS['user']:-}" ]; then
@@ -301,7 +346,7 @@ function github-utilities.main()
 
 
     # perform what was asked
-    if [ ${OPTS['debug']:-0} -ne 0 ]; then
+    if [ "${OPTS['debug']:-0}" -ne 0 ]; then
         echo "cmd:    ${OPTS['cmd']:-}" >&2
         echo "oper:   ${OPTS['oper']:-}" >&2
         echo "action: ${OPTS['action']:-}" >&2
@@ -334,66 +379,49 @@ function github-utilities.main()
         exec 3>&-
 
     fi
-    return $status
+    return "$status"
 }
 
 #----------------------------------------------------------------------------------------------
 function github-utilities.orgInfo_Devops()
 {
-    local -A OPTS
-    eval OPTS=( $1 )
-    readonly OPTS
-    shift
-
-    local loc="${OPTS['base']}"
-    mkdir -p "$loc" ||:
-
     local org repoId repoName teamId teamName line
     local -i status
     echo "Starting process $$ at $(TZ=New_York date)"
-    echo "user: $OPTS['user']"
 
-    for org in "$(< "${PROGRAM_DIR}/devops_orgs.git")"; do
+    local loc='.'
+    while read -r org; do
         (github.orgRepos "$org" > "${loc}/${org}/repos.json") && status=$? || status=$?
         (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
-    done
+    done < "${PROGRAM_DIR}/devops_orgs.git"
     echo
 }
 
 #----------------------------------------------------------------------------------------------
 function github-utilities.orgInfo_MRES()
 {
-    local -A OPTS
-    eval OPTS=( $1 )
-    readonly OPTS
-    shift
-
-    local loc="${OPTS['base']}"
-    mkdir -p "$loc" ||:
-
     local org repoId repoName teamId teamName line
     local -i status
-    echo "Starting process $$ at $(TZ=New_York date)"
-    echo "user: $OPTS['user']"
 
-    for org in "$(< "${PROGRAM_DIR}/mrs_orgs.git")"; do
+    local loc='.'
+    while read -r org; do
         mkdir -p "${loc}/${org}" ||:
         (github.orgRepos "$org" > "${loc}/${org}/repos.json") && status=$? || status=$?
         while read -r line; do
-            repoId=${line%%,*}
-            repoName=${line#*, }
+            repoId="${line%%,*}"
+            repoName="${line#*, }"
             (github.orgRepoInfo "$org" "$repoName" > "${loc}/${org}/repos.${repoName}.info.json") && status=$? || status=$?
             (github.repoCollaborators "$org" "$repoName" > "${loc}/${org}/repos.${repoName}.collaborators.json") && status=$? || status=$?
         done < <(jq -r '.[]|"\(.id), \(.name)"' "${loc}/${org}/repos.json")
 
         (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
         while read -r line; do
-            teamId=${line%%,*}
-            teamName=${line#*, }
+            teamId="${line%%,*}"
+            teamName="${line#*, }"
             (github.teamMembers "$teamId" > "${loc}/${org}/repos.${teamName}.members.json") && status=$? || status=$?
             (github.teamRepos "$teamId" > "${loc}/${org}/repos.${teamName}.repos.json") && status=$? || status=$?
         done < <(jq -r '.[]|"\(.id), \(.name)"' "${loc}/${org}/teams.json")
-    done
+    done < "${PROGRAM_DIR}/mrs_orgs.git"
 
     github-utilities.process_files "$loc"
     echo
@@ -409,16 +437,16 @@ function github-utilities.process_files()
                    ['teams']="id name slug description privacy permission"
                   )
 
-    for dir in $(find "$pwd" -mindepth 1 -maxdepth 1 -type d); do
+    while read -r dir; do
         local org="$(basename "$dir")"
         for objtype in "${!DATA[@]}"; do
             # verify there are files to process
             local -a files
-            mapfile -t files < <(find ${dir} -mindepth 1 -maxdepth 1 -name "*.${objtype}.json" ||:)
+            mapfile -t files < <(find "${dir}" -mindepth 1 -maxdepth 1 -name "*.${objtype}.json" ||:)
             [ "${#files[*]}" -eq 0 ] && continue
 
             local -a exp
-            mapfile -t exp < <( $(awk '{print $0}' RS=' ' <<< ${DATA[$objtype]} ||:) )
+            mapfile -t exp < <(awk '{print $0}' RS=' ' <<< ${DATA[$objtype]} ||:)
             local last=$(( ${#exp[@]} - 1 ))
             for (( i=0; i<"${#exp[@]}"; i++ ));do
                 [ -z "${exp[i]:-}" ] && continue
@@ -431,12 +459,12 @@ function github-utilities.process_files()
 
             local logfile="${pwd}/${org}.${objtype}.csv"
             :> "$logfile"
-            local jexp='.[]|"'"${org}${objtype},$(basename $file),${exp[*]}"'"'
+            local jexp='.[]|"'"${org}${objtype},$(basename "$file"),${exp[*]}"'"'
             for file in "${files[@]}"; do
                 jq -r "$jexp" "$file" >> "$logfile"
             done
         done
-    done
+    done < <(find "$pwd" -mindepth 1 -maxdepth 1 -type d)
 }
 
 #----------------------------------------------------------------------------------------------
@@ -447,7 +475,13 @@ function github-utilities.usage()
 
     local -A contextHelp=( ['clean']=github-utilities.helpFor_clean
                            ['delete']=github-utilities.helpFor_delete
-                           ['deletetaginspecificrepo']=github-utilities.helpFor_deleteTagInSpecificRepo
+                           ['orgrepos']=github-utilities.helpFor_orgRepos
+                           ['orgrepoinfo']=github-utilities.orgrepoinfo
+                           ['orgteams']=github-utilities.helpFor_orgTeams
+                           ['orgrepocollaborators']=github-utilities.orgRepoCollaborators
+                           ['teammembers']=github-utilities.teammembers
+                           ['teammrepos']=github-utilities.teamrepos
+                           ['userinfo']=github-utilities.userinfo
                          )
 
     # show context sensitive help

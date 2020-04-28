@@ -206,7 +206,7 @@ function jira-utilities.cmdLineArgs()
                 [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
                 case ${2^^} in
                     PROD|TEST|STAGE1|STAGE2) opts['server']="$(jira.JIRA_${2^^})";;
-                    *)                       opts['server']="$2";;
+                    *)                       opts['server']="${2%/}";;
                 esac
                 shift 2;;
 
@@ -438,8 +438,10 @@ function jira-utilities.search()
     local jql
     jql=$(< "$jqlFile") || status=$?
     [ $status -ne 0 ] && trap.die "unable to read jqlFile: $jqlFile"'\n'
-    
     echo "jira.search = $jql" >&2
+    (jq --exit-status '.' <<< "$jql" &> /dev/null) || status=$?
+    [ $status -eq 0 ] || trap.die "invalid JSON specified in JQL"
+
     jira.search "$jql" || status=$?
     echo >&2
     return $status
