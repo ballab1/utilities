@@ -64,7 +64,7 @@ function build.all()
     local cbf_version="${CBF_VERSION:-}"
     if [ -z "${CBF_VERSION:-}" ]; then
         if [ -d "${OPTS['base']}/container_build_framework" ]; then
-            cbf_version="$(build.cbfVersion)" || trap.die "Unable to save CBF to $(custom.storage)."'\n'
+            cbf_version="$(build.cbfVersion)" || trap.die "Unable to save CBF to $(custom.storage)."
         else
             cbf_version="$(git.referenceBranch)"
         fi
@@ -183,7 +183,7 @@ function build.cbfVersion()
 
     # pass git tree hash to 'custom.cbfVersion' so that we only depend on the contents in GIT
     local filename="$(git.lsTree 'HEAD' 'container_build_framework' | awk '{print $3}')"
-    custom.cbfVersion "$filename"
+    custom.cbfVersion "$filename" || return 1
     return 0
 }
 

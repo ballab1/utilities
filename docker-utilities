@@ -59,7 +59,7 @@ Commands:
           --tag-summary : show a summary of tag usage for specified repos
     retagImages       Retag images defined in docker-compose.yml
     retagLatest       retag dev to defined tag (or 'latest' if no tag defined)
-    show              common 'docker commands' with specific options to make more usefule
+    show  [--quiet]   common 'docker commands' with specific options to make more usefule
           --images      : docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 
           --networks    : docker networks: also includes ip address and network name
           --processes   : docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}"
@@ -303,13 +303,15 @@ function docker-utilities.helpFor_show()
     cat >&2 << EOF
 
 Usage:
-    $PROGNAME show [ --images ] | [ --networks ] | [ --processes ] | [ --services ]
+    $PROGNAME show [--quiet] [ --images ] | [ --networks ] | [ --processes ] | [ --services ]
 
         common 'docker commands' with specific options to make more usefule
               --images      : docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 
               --networks    : docker networks: also includes ip address and network name
               --processes   : docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}"
               --services    : show services defined in docker-compose.yml
+
+   when the '--quiet' option is provided, only the ID is shown
 
 EOF
 }
@@ -474,8 +476,8 @@ function docker-utilities.cmdLineArgs()
 
             show)
                 opts['cmd']='docker-utilities.show'
-                longOpts='images,networks,processes,services'
-                shortOpts='inps'
+                longOpts='images,networks,processes,services,quiet'
+                shortOpts='inpsq'
                 argsCondition='$# -ge 0'
                 shift;;
 
@@ -1506,13 +1508,19 @@ function docker-utilities.show()
             echo >&2
             mapfile -t images < <(docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" ||:)
             if [ ${#images[*]} -gt 1 ]; then
+                [ "${OPTS['quiet']:-}" ] && images[0]='IMAGE ID'
                 echo -e "\e[97m${images[0]}\e[0m" >&2
                 unset images[0]
-                if [ "${filter:-}" ]; then
+                if [ "${OPTS['quiet']:-}" ] &&[ "${filter:-}" ]; then
+                    [[ $filter == *:* ]] && filter=$(sed -e 's|:|\\s+|' <<< "$filter")                
+                    (printf '%s\n' "${images[@]}" | sort | grep -E "$filter" | awk '{print $3}') && status=$? || status=$?
+                elif [ "${OPTS['quiet']:-}" ]; then
+                    (printf '%s\n' "${images[@]}" | sort | awk '{print $3}') && status=$? || status=$?
+                elif [ "${filter:-}" ]; then
                     [[ $filter == *:* ]] && filter=$(sed -e 's|:|\\s+|' <<< "$filter")                
                     (printf '%s\n' "${images[@]}" | sort | grep -E "$filter") && status=$? || status=$?
                 else
-                    printf '%s\n' "${images[@]}" | sort && status=$? || status=$?
+                    (printf '%s\n' "${images[@]}" | sort) && status=$? || status=$?
                 fi
             fi
             ;;
@@ -1542,12 +1550,17 @@ function docker-utilities.show()
             echo >&2
             mapfile -t containers < <(docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}" ||:)
             if [ ${#containers[*]} -gt 1 ]; then
+                [ "${OPTS['quiet']:-}" ] && containers[0]='CONTAINER ID'
                 echo -e "\e[97m${containers[0]}\e[0m" >&2
                 unset "containers[0]"
-                if [ "${filter:-}" ]; then
+                if [ "${OPTS['quiet']:-}" ] && [ "${filter:-}" ]; then
+                    (printf '%s\n' "${containers[@]}" | sort | grep -E "$filter" | awk '{print $2}') && status=$? || status=$?
+                elif [ "${OPTS['quiet']:-}" ]; then
+                    (printf '%s\n' "${containers[@]}" | sort | awk '{print $2}') && status=$? || status=$?
+                elif [ "${filter:-}" ]; then
                     (printf '%s\n' "${containers[@]}" | sort | grep -E "$filter") && status=$? || status=$?
                 else
-                    printf '%s\n' "${containers[@]}" | sort && status=$? || status=$?
+                    (printf '%s\n' "${containers[@]}" | sort) && status=$? || status=$?
                 fi
             fi
             ;;

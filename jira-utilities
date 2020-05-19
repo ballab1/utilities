@@ -8,7 +8,7 @@ function jira-utilities.helpFor_general()
     cat >&2 << EOF
 Usage:
     $PROGNAME [ help [ subcommand ]
-              | fields                Dump JSON field info
+              | allfields             Dump JSON field info
               | issue <issue-id>      get all fields for a specific issue
               | jiraProduction        check Support Materials Folders
               | projectInfo           Dump JSON project info
@@ -32,21 +32,21 @@ EOF
 }
 
 #----------------------------------------------------------------------------------------------
-function jira-utilities.helpFor_checkSupportMaterialsFolders()
+function jira-utilities.helpFor_allfields()
 {
     cat >&2 << EOF
 
-    check JIRA support materials folders
+    dump JSON infor for all JIRA fields
 
 EOF
 }
 
 #----------------------------------------------------------------------------------------------
-function jira-utilities.helpFor_fields()
+function jira-utilities.helpFor_checkSupportMaterialsFolders()
 {
     cat >&2 << EOF
 
-    show fields for current project
+    check JIRA support materials folders
 
 EOF
 }
@@ -92,6 +92,12 @@ EOF
 }
 
 #----------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------
+function jira-utilities.allfields()
+{
+    jira.fields
+}
+
 #----------------------------------------------------------------------------------------------
 function jira-utilities.checkSupportMaterialsFolders()
 {
@@ -184,7 +190,7 @@ function jira-utilities.cmdLineArgs()
                 return 0;;
 
             -c|--credentials)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
                 opts['credentials']="$2"
                 shift 2;;
 
@@ -193,24 +199,24 @@ function jira-utilities.cmdLineArgs()
                 shift;;
 
             -u|--user)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
                 opts['user']="$2"
                 shift 2;;
 
             -p|--projectkey)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
-                opts['key']="$2^^"
+                [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+                opts['key']="${2^^}"
                 shift 2;;
 
             -s|--server)
-                [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
                 case ${2^^} in
                     PROD|TEST|STAGE1|STAGE2) opts['server']="$(jira.JIRA_${2^^})";;
                     *)                       opts['server']="${2%/}";;
                 esac
                 shift 2;;
 
-            fields)
+            allfields)
                 opts['cmd']='jira-utilities.fields'
                 opts['message']="display fields from $(jira.SERVER)"
                 longOpts='mode'
@@ -235,7 +241,7 @@ function jira-utilities.cmdLineArgs()
             projectinfo)
                 opts['cmd']='jira-utilities.projectInfo'
                 opts['message']="display project from $(jira.SERVER)"
-                longOpts='mode'
+                longOpts='mode type'
                 shortOpts='m'
                 argsCondition='$# -le 1'
                 shift;;
@@ -274,13 +280,19 @@ function jira-utilities.cmdLineArgs()
         while [ "${1:-}" ]; do
             case "${1,,}" in
                 -m|--mode)
-                    [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                    [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
                     opts['mode']="$2"
                     shift 2
                     ;;
 
+                -t|--type)
+                    [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+                    opts['type']="$2"
+                    shift 2
+                    ;;
+
                 -o|--out)
-                    [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+                    [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
                     opts['log']="$2"
                     shift 2
                     ;;
@@ -313,12 +325,6 @@ function jira-utilities.cmdLineArgs()
     fi
     appenv.results "$@"
     return 0
-}
-
-#----------------------------------------------------------------------------------------------
-function jira-utilities.fields()
-{
-    jira.fields
 }
 
 #----------------------------------------------------------------------------------------------
@@ -403,8 +409,9 @@ function jira-utilities.main()
 function jira-utilities.projectInfo()
 {
     local default="${OPTS['key']:-MDT}"
-    local project="${1:-$default}"
-    jira.projectInfo "$project"
+    local -r project="${1:-$default}"
+    local -r issueType=${2:-Bug};
+    jira.projectInfo "$project" "$issueType"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -453,7 +460,7 @@ function jira-utilities.usage()
     local -r context="${1:-help}"
     local -ir exit_status="${2:-127}"
 
-    local -A contextHelp=( ['fields']=jira-utilities.helpFor_fields
+    local -A contextHelp=( ['allfields']=jira-utilities.helpFor_allfields
                            ['jiraproduction']=jira-utilities.helpFor_checkSuppportMaterialsFolders
                            ['issue']=jira-utilities.helpFor_issue
                            ['projectinfo']=jira-utilities.helpFor_projectInfo
