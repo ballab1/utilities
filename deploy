@@ -269,60 +269,6 @@ function deploy.containerTag()
 }
 
 #----------------------------------------------------------------------------------------------
-# process line from docker-compose which contains 'image:'
-function deploy.containerVersion()
-{
-    local -r line=${1:?}
-    local -r service=${2:?}
-
-    local fingerprint newline prefix production promoted
-
-    # capture prefix up to registry
-    prefix="$(sed -Ee 's|^(\s+.*'"$(registry.SERVER)"'}).*$|\1|' <<< "$line")"
-
-    newline="${line:${#prefix}}"   # strip prefix from line
-    promoted="$newline"
-    orgimage="$(unset CONTAINER_TAG; eval "echo $newline")"
-    production="$orgimage"
-    fingerprint='<none>'
-
-    # only process lines which have 'CONTAINER_TAG'
-    if [[ "$newline" = *CONTAINER_TAG* ]]; then
-        local container=$(jq --compact-output --monochrome-output --raw-output '.container_name' <<< "$service")
-        if [ "${container:-}" ]; then
-
-            # strip :tag'  suffix
-            newline="${newline%:*}"
-            [[ "$newline" = *CONTAINER_TAG ]] && newline="${newline%:\${CONTAINER_TAG*}"
-
-            # since this service is running, extract the image name from service, and its fingerprint
-            orgimage="$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Image')"
-            fingerprint=$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"')
-
-            # if the fingerprint exists, replace image tag with fingerprint
-            [ "$fingerprint" != 'null' ] && newline="${newline}"':${CONTAINER_TAG:-'"${fingerprint}"'}'
-
-            promoted="$(eval echo $newline)"
-            production="$(unset CONTAINER_TAG; eval echo $newline)"
-        fi
-    else
-        promoted="$production"
-    fi
-
-    # generate our output JSON
-    echo -n '{'
-#    echo -n '"version":"'${fingerprint}'",'
-#    echo -n '"orgimage":"'${orgimage)'",'
-#    echo -n '"newimage":"'${orgimage%:*}':'${fingerprint}'",'
-    echo -n '"orgline":"'${line}'",'
-    echo -n '"newline":"'${prefix}${newline}'",'
-    echo -n '"production":"'${prefix}${production}'",'
-    echo -n '"promoted":"'${prefix}${promoted}'"'
-    echo '}'
-    return 0
-}
-
-#----------------------------------------------------------------------------------------------
 function deploy.createVolumeFolders()
 {
     local json="${1:?}"
@@ -392,41 +338,6 @@ function deploy.down()
 
 #----------------------------------------------------------------------------------------------
 # determine changes to line of 'docker-compose'
-# called after containers are running so that up-to-date config info is available
-function deploy.fixupDCLineAfterRun()
-{
-    local line="${1:?}"
-    local -r service="${2:?}"
-    local -r property="${3:?}"       # property for 'jq' to select from JSON:  '.newline' or '.promoted'
-    local -r isConfig="${4:-}"
-
-    # don't copy comments to output
-    [ -z "${isConfig:-}" ] && grep -Eq '^\s*#' <<< "$line" && return 0
-
-    # update image definition
-    if grep -qsE '^\s+image:\s' <<< "$line"; then
-        # update workspace/docker-compose.yml when we pull latest images
-        line="$(deploy.containerVersion "$line" "$service" | jq --compact-output --monochrome-output --raw-output "$property")"
-    fi
-
-    # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
-    while read -r keyName; do
-        [ -z "${!keyName:-}" ] && trap.die "unrecognized VERSION parameter $keyName used."
-        # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
-        line="$(sed -E 's|^(\s+.*\$\{'"$keyName"':-)[^\}]+(}.*)$|\1'"${!keyName}"'\2|' <<< "$line")"
-    done < <(awk '/([A-Z0-9]+_VERSION):-/ {sub(":.*","");print substr($0,2)}' RS='$' <<< "$line")
-
-    if [ -z "${isConfig:-}" ] && [ "$(grep -cEs ':\?}' <<< "$line")" -gt 0 ]; then
-        local indent="$(sed -Ee 's|^(\s+).*$|\1|' <<< "$line")"
-        line="${indent}$(eval "echo $line")"
-    fi
-
-    echo "$line"
-    return 0
-}
-
-#----------------------------------------------------------------------------------------------
-# determine changes to line of 'docker-compose'
 # called before containers are running so that the workspace 'docker-compose' contains latest user changes
 function deploy.fixupDCLineBeforeRun()
 {
@@ -469,7 +380,8 @@ function deploy.fixWorkspaceYaml()
 
 #----------------------------------------------------------------------------------------------
 # parse all BASH tokens/variables from a file
-function deploy.getTokens() {
+function deploy.getTokens()
+{
   local file="${1:?}"
 
   ########    | *removeUnwantedLines*      | *removeTrailingSpaces, separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*
@@ -769,75 +681,80 @@ function deploy.updateDockerCompose()
 {
     local -r mode=${1:?}
 
-    local dst_yaml json process src_yaml
+    local dst_yaml json process src_yaml tmp_file
     local -a args=()
 
     # setup the conditions to control how docker.compose gets updated
     case "$mode" in
         updateCfgYaml)
-            src_yaml="$CONFIG_YAML"
             dst_yaml="$CONFIG_YAML"
-            process='deploy.fixupDCLineAfterRun'
-            json=$(lib.yamlToJson "$dst_yaml")
-            args=( '.newline' 'isConfig' )
+            tmp_file="${CONFIG_YAML#.*}.tmp"
+            deploy.updateComposeFile "$CONFIG_YAML" '.newline' "$(lib.yamlToJson "$CONFIG_YAML")" > "$tmp_file"
+            [ $? -ne 0 ] && trap.die "Failed to process file: $dst_yaml"
+            deploy.updateFile "$tmp_file" "$CONFIG_YAML" 
             ;;
 
         promote)
-            src_yaml="$CONFIG_YAML"
             dst_yaml="$CONFIG_YAML"
-            process='deploy.fixupDCLineAfterRun'
-            json=$(lib.yamlToJson "$dst_yaml")
-            args=( '.promoted' 'isConfig' )
+            tmp_file="${CONFIG_YAML#.*}.tmp"
+            deploy.updateComposeFile "$CONFIG_YAML" '.promoted' "$(lib.yamlToJson "$CONFIG_YAML")" > "$tmp_file"
+            [ $? -ne 0 ] && trap.die "Failed to process file: $dst_yaml"
+            deploy.updateFile "$tmp_file" "$CONFIG_YAML" 
             ;;
 
         production)
-            src_yaml="$CONFIG_YAML"
             dst_yaml="$CONFIG_DIR/docker-compose.master.yml"
-            process='deploy.fixupDCLineAfterRun'
-            json=$(lib.yamlToJson "$WORKSPACE_YAML")
-            args=( '.production' 'isConfig' )
+            tmp_file="$CONFIG_DIR/docker-compose.master.tmp"
+            deploy.updateComposeFile "$CONFIG_YAML" '.production' "$(lib.yamlToJson "$WORKSPACE_YAML")" > "$tmp_file"
+            [ $? -ne 0 ] && trap.die "Failed to process file: $dst_yaml"
+            deploy.updateFile "$tmp_file" "$CONFIG_YAML" 
             ;;
 
         *)
             trap.die "Invalid option passed to 'function ${FUNCNAME[0]}()'"
             ;;
     esac
+}
+
+#----------------------------------------------------------------------------------------------
+function deploy.updateComposeFile()
+{
+    local -r src_yaml="${1:?}"
+    local -r property="${2:?}"
+    local -r json="${3:?}"
 
 
     local -i status
     local -a services="$(lib.yamlToJson "$src_yaml" | jq --compact-output --monochrome-output --raw-output '.services|keys[]')"
-    local tmp_file="${dst_yaml#.*}.tmp"
-    (
-        local service='null'
-        local key=''
-        while read -r line; do
+    local service='null'
+    local key=''
+    while read -r line; do
 
-            # skip blank lines
-            if [ -z "${line:-}" ] || grep -sq '^\s+$' <<< "$line" ; then
-                echo
-                continue
-            fi
+        # skip blank lines
+        if [ -z "${line:-}" ] || grep -sq '^\s+$' <<< "$line" ; then
+            echo
+            continue
+        fi
 
-            # look for 'service' definition  (capture start of line, to [:#], then look for key)
-            key="$(sed -E -e 's|^(.+?[:#])\s.*$|\1|' <<< "$line" | sed -E -e 's|^\s+(\w+):\s*$|\1|')"
-            if [ "${key:-}" ] && [ "${json:-}" ]; then
+        # look for 'service' definition  (capture start of line, to [:#], then look for key)
+        key="$(sed -E -e 's|^(.+?[:#])\s.*$|\1|' <<< "$line" | sed -E -e 's|^\s+(\w+):\s*$|\1|')"
+        if [ "${key:-}" ] && [ "${json:-}" ]; then
 
-                # find service that defines image
-                grep -qE '^\s+'"${key}"':\s*$' <<< "$line" && \
-                    grep -q "$key" <<< "$services" && \
-                    service=$(jq --compact-output --monochrome-output ".services.$key" <<< "$json")
-            fi
+            # find service that defines image
+            grep -qE '^\s+'"${key}"':\s*$' <<< "$line" && \
+                grep -q "$key" <<< "$services" && \
+                service=$(jq --compact-output --monochrome-output ".services.$key" <<< "$json")
 
-            # process line
-            if ! "$process" "$line" "$service" "${args[@]:-}"; then
-                term.elog "Failed to process $line"'\n' 'warn'
-                break
-            fi
-        done < "$src_yaml"
-    ) > "$tmp_file"
-    [ $? -ne 0 ] && trap.die "Failed to process file: $dst_yaml"
+        fi
 
-    deploy.updateFile "$tmp_file" "$src_yaml"
+        grep -E '^\s*#' <<< "$line"                              && continue    # process comments
+        deploy.updateImageVersion "$line" "$property" "$service" && continue    # process line from docker-compose which contains 'image:'
+        deploy.updateVersions "$line"                            && continue    # update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
+        deploy.updateMandatoryVariables "$line"                  && continue    # update lines which contain ':\?}'
+
+        echo "$line"
+
+    done < "$src_yaml"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -865,6 +782,83 @@ function deploy.updateFile()
 }
 
 #----------------------------------------------------------------------------------------------
+# process line from docker-compose which contains 'image:'
+function deploy.updateImageVersion()
+{
+    local -r line=${1:?}
+    local -r property=${2:?}
+    local -r service=${3:?}
+
+    # update image definition
+    grep -qsE '^\s+image:\s' <<< "$line" || return 1
+
+
+    local -r wline="${line//\"}"
+
+    # capture prefix up to registry
+    local prefix="$(sed -Ee 's|^(\s+.*'"$(registry.SERVER)"'}).*$|\1|' <<< "$wline")"
+
+    local newline="${wline:${#prefix}}"   # strip prefix from line
+    local promoted="$newline"
+    local orgimage="$(unset CONTAINER_TAG; eval "echo $newline")"
+    local production="$orgimage"
+    local fingerprint='<none>'
+
+    # only process lines which have 'CONTAINER_TAG'
+    if [[ "$newline" != *CONTAINER_TAG* ]]; then
+        promoted="$production"
+    else
+
+        local container=$(jq --compact-output --monochrome-output --raw-output '.container_name' <<< "$service")
+        if [ "${container:-}" ]; then
+
+            # strip :tag'  suffix
+            newline="${newline%:*}"
+            [[ "$newline" = *CONTAINER_TAG ]] && newline="${newline%:\${CONTAINER_TAG*}"
+
+            # since this service is running, extract the image name from service, and its fingerprint
+            orgimage="$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Image')"
+            fingerprint=$(docker inspect "$container" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."container.fingerprint"')
+
+            # if the fingerprint exists, replace image tag with fingerprint
+            [ "$fingerprint" != 'null' ] && newline="${newline}"':${CONTAINER_TAG:-'"${fingerprint}"'}'
+
+            promoted="$(eval echo $newline)"
+            production="$(unset CONTAINER_TAG; eval echo $newline)"
+        fi
+    fi
+
+
+   case "$property" in
+       .newline)
+           echo "${prefix}${newline}"
+           ;;
+       .promoted)
+           echo "${prefix}${promoted}"
+           ;;
+       .production)
+           echo "${prefix}${production}"
+           ;;
+    esac
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+#  update lines which contain ':\?}'
+function deploy.updateMandatoryVariables()
+{
+    local line="${1:?}"
+
+    if [ "$(grep -cEs ':\?}' <<< "$line")" -gt 0 ]; then
+        local indent="$(sed -Ee 's|^(\s+).*$|\1|' <<< "$line")"
+        line="${indent}$(eval "echo $line")"
+    fi
+
+    echo "$line"
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
 function deploy.updateSecretRefs()
 {
     local -r dc_yaml=${1:?}
@@ -872,6 +866,22 @@ function deploy.updateSecretRefs()
     sed -r -e 's|file:\s+~/|file: '"$(readlink -f ~)"'/|' "$dc_yaml" > "$tmp_file"
 
     deploy.updateFile "$tmp_file" "$dc_yaml"
+}
+
+#----------------------------------------------------------------------------------------------
+# update any versions.  (search for string containing  '${SOMEMODULE_VERSION:-xxxxxxxxxxxxxxx}'
+function deploy.updateVersions()
+{
+    local line="${1:?}"
+
+    while read -r keyName; do
+        [ -z "${!keyName:-}" ] && trap.die "unrecognized VERSION parameter $keyName used."
+        # 'keyName' is 'SOMEMODULE_VERSION',  '!keyName' is the current/new value of 'xxxxxxxxxxxxxxx'
+        line="$(sed -E 's|^(\s+.*\$\{'"$keyName"':-)[^\}]+(}.*)$|\1'"${!keyName}"'\2|' <<< "$line")"
+    done < <(awk '/([A-Z0-9]+_VERSION):-/ {sub(":.*","");print substr($0,2)}' RS='$' <<< "$line")
+
+    echo "$line"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
