@@ -124,6 +124,7 @@ function deploy.__initGlobals()
     [[ "${CFG_USER:-}" && "${CFG_NAME:-}" && "${CFG_EMAIL:-}" && "${HOST_IP:-}" && "${HOST_NAME:-}" ]] || trap.die 'Invalid configuration'
     [[ "${CFG_USER:-}" != root ]] || trap.die 'Deploy of packages as root user is not permitted\n'
 
+    HAS_VERSIONS="$(jq --compact-output --monochrome-output --raw-output 'has("versions")' <<< "$deploy_json" ||:)"
  
     readonly CFG_USER
     readonly CFG_NAME
@@ -140,7 +141,7 @@ function deploy.__initGlobals()
     # ensure our log dir exists
     [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR" ||:
 
-    if [ "$(jq 'has("skip_wait")' <<< "$deploy_json")" = 'true' ]; then
+    if [ "$(jq --compact-output --monochrome-output --raw-output 'has("skip_wait")' <<< "$deploy_json")" = 'true' ]; then
         mapfile -t SKIP_WAIT < <(jq --compact-output --monochrome-output --raw-output '.skip_wait[]' <<< "$deploy_json" ||:)
     else
         SKIP_WAIT=()
@@ -528,8 +529,11 @@ function deploy.main()
 {
     # declare our GLOBAL variables
     declare -ax COMPLETION_MSG SKIP_WAIT
-    declare -x CFG_EMAIL CFG_NAME CFG_USER CONFIG_DIR CONFIG_YAML CONTAINER_OS DEBUG_TRACE DEPLOY_YAML HOST_IP HOST_NAME LOG_DIR SECRETS_DIR START_TIMEWORKSPACE_DIR WORKSPACE_YAML 
+    declare -x CFG_EMAIL CFG_NAME CFG_USER CONFIG_DIR CONFIG_YAML CONTAINER_OS DEBUG_TRACE DEPLOY_YAML
+    declare -x HAS_VERSIONS HOST_IP HOST_NAME LOG_DIR SECRETS_DIR START_TIME WORKSPACE_DIR WORKSPACE_YAML 
     declare -A OPTS
+#    declare -r JQ_OPTS='--compact-output --monochrome-output --raw-output'
+#    declare -r JQ_OPTS='-c -m -r'
 
     eval "OPTS=( ${1:?} )"
     readonly OPTS
@@ -560,7 +564,7 @@ function deploy.main()
     fi
 
 
-    versions.data "$DEPLOY_YAML" "${OPTS['latest']:-}"
+    [ "${HAS_VERSIONS:-false}" = 'true' ] && versions.data "$DEPLOY_YAML" "${OPTS['latest']:-}"
 
 
     #  restart devops_container_environment  (performs configuration if needed)
