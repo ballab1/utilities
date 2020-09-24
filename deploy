@@ -513,6 +513,19 @@ function deploy.initialize()
 
 #----------------------------------------------------------------------------------------------
 # used by '......setup' files
+function deploy.environmentVar()
+{
+    local -r service=${1:?}
+    local -r var=${2:?}
+    local -r service=${1:?}
+    
+    local result="$(lib.yamlToJson "$WORKSPACE_YAML" | jq --compact-output --monochrome-output --raw-output 'try .services.'"$service"'.environment.'"$service" )"
+    echo "$(eval echo "$result")" 
+
+    return 0
+}
+export -f deploy.environmentVar
+
 function deploy.isValidService()
 {
     local -r service=${1:?}
@@ -523,6 +536,10 @@ function deploy.isValidService()
     return 0
 }
 export -f deploy.isValidService
+
+create deploy function for
+    # determine nconf dbuser
+    declare -r dc_json="$(lib.yamlToJson "${WORKSPACE_DIR}/docker-compose.yml")"
 
 #----------------------------------------------------------------------------------------------
 function deploy.main()
