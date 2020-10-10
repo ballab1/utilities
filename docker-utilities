@@ -1197,7 +1197,11 @@ function docker-utilities.markImageForDeletion()
     local -a digests tags
 
     docker-utilities.digests 'json' "$repo" 'notimes'
-    mapfile -t digests < <(jq --compact-output --monochrome-output --raw-output '.[]|select(.digest == "'$tag'" or (.tags|contains(["'$tag'"])))|.digest' <<< "$json" ||:)
+    if [[ "$tag" = '*' || "$tag" = '.*' || "$tag" = '.+' ]]; then
+        mapfile -t digests < <(jq --compact-output --monochrome-output --raw-output '.[].digest' <<< "$json" ||:)
+    else
+        mapfile -t digests < <(jq --compact-output --monochrome-output --raw-output '.[]|select(.digest == "'$tag'" or (.tags|contains(["'$tag'"])))|.digest' <<< "$json" ||:)
+    fi
     [ "${#digests[*]}" -le 0 ] && return 0
 
     for digest in "${digests[@]}"; do
