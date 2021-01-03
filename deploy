@@ -58,7 +58,7 @@ function deploy.__initGlobals()
 
     # verify our basic setup is good
     export CONTAINER_OS="$(jq --compact-output --monochrome-output --raw-output 'try .container_os' <<< "$deploy_json" ||:)"
-    [ "${CONTAINER_OS:-}" ] || trap.die "missing 'container_os' section in $deploy_json"
+    [ "${CONTAINER_OS:-}" ] || trap.die "missing 'container_os' section in $DEPLOY_YAML"
     readonly CONTAINER_OS
 
     export WORKSPACE_DIR="$(deploy.workspace "$base_dir")"

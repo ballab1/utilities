@@ -10,8 +10,11 @@ Usage:
     $PROGNAME [ help [ subcommand ]
               | allfields             Dump JSON field info
               | issue <issue-id>      get all fields for a specific issue
+              | issueTypeScheme
               | jiraProduction        check Support Materials Folders
+              | listProjects          List all JIRA projects
               | projectInfo           Dump JSON project info
+              | projectTypes          Dump JSON project types
               | remoteLinks
               | search <jql_sub>      Dump JQL search results from <jql_sub>
 
@@ -62,7 +65,37 @@ EOF
 }
 
 #----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_issueTypeScheme()
+{
+    cat >&2 << EOF
+
+    list all fields for a specific issue
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_listProjects()
+{
+    cat >&2 << EOF
+
+    list JIRA projects on $(jira.SERVER)
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
 function jira-utilities.helpFor_projectInfo()
+{
+    cat >&2 << EOF
+
+    list JIRA properties about specifed project
+
+EOF
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.helpFor_projectTypes()
 {
     cat >&2 << EOF
 
@@ -230,6 +263,12 @@ function jira-utilities.cmdLineArgs()
                 argsCondition='$# -eq 1'
                 shift;;
 
+            issuetypescheme)
+                opts['cmd']='jira-utilities.issueTypeScheme'
+                opts['message']="get all fields for a spcific issue"
+                argsCondition='$# -eq 0'
+                shift;;
+
             jiraproduction)
                 opts['cmd']='jira-utilities.checkSuppportMaterialsFolders'
                 opts['message']="check JIRA support materials folders"
@@ -238,10 +277,26 @@ function jira-utilities.cmdLineArgs()
                 argsCondition='$# -eq 2'
                 shift;;
 
+            listprojects)
+                opts['cmd']='jira-utilities.listProjects'
+                opts['message']="list JIRA projects from $(jira.SERVER)"
+                longOpts=''
+                shortOpts=''
+                argsCondition='$# -ge 0'
+                shift;;
+
             projectinfo)
                 opts['cmd']='jira-utilities.projectInfo'
                 opts['message']="display project from $(jira.SERVER)"
                 longOpts='mode type'
+                shortOpts='m'
+                argsCondition='$# -le 1'
+                shift;;
+
+            projecttypes)
+                opts['cmd']='jira-utilities.projectTypes'
+                opts['message']="display project from $(jira.SERVER)"
+                longOpts='mode'
                 shortOpts='m'
                 argsCondition='$# -le 1'
                 shift;;
@@ -335,6 +390,12 @@ function jira-utilities.issue()
 }
 
 #----------------------------------------------------------------------------------------------
+function jira-utilities.issueTypeScheme()
+{
+    jira.issueTypeScheme
+}
+
+#----------------------------------------------------------------------------------------------
 function jira-utilities.main()
 {
     # define our 'GLOBALS'
@@ -406,12 +467,27 @@ function jira-utilities.main()
 }
 
 #----------------------------------------------------------------------------------------------
+function jira-utilities.listProjects()
+{
+    jira.listProjects "$@"
+}
+
+#----------------------------------------------------------------------------------------------
 function jira-utilities.projectInfo()
 {
     local default="${OPTS['key']:-MDT}"
     local -r project="${1:-$default}"
     local -r issueType=${2:-Bug};
     jira.projectInfo "$project" "$issueType"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.projectTypes()
+{
+    local default="${OPTS['key']:-MDT}"
+    local -r project="${1:-$default}"
+
+    jira.projectTypes "$project"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -462,8 +538,11 @@ function jira-utilities.usage()
 
     local -A contextHelp=( ['allfields']=jira-utilities.helpFor_allfields
                            ['jiraproduction']=jira-utilities.helpFor_checkSuppportMaterialsFolders
+                           ['issuetypescheme']=jira-utilities.helpFor_issueTypeScheme
                            ['issue']=jira-utilities.helpFor_issue
+                           ['listprojects']=jira-utilities.helpFor_listProjects
                            ['projectinfo']=jira-utilities.helpFor_projectInfo
+                           ['projecttypes']=jira-utilities.helpFor_projectTypes
                            ['remotelinks']=jira-utilities.helpFor_remoteLinks
                            ['search']=jira-utilities.helpFor_search
             )
