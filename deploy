@@ -918,7 +918,7 @@ function deploy.verifyEnvironmentForFile()
                 unknown+=( "$var" )    # add to 'unknown' unless TOKEN exists in our ENV
                 continue
             fi
-            var="${var}=${!var}"
+            var="${var}='${!var}'"
         fi
         tokens+=( "$var" )
     done < <(deploy.getTokens "$file" | grep -Ev 'CONTAINER_TAG|DEV_TEAM' | sort -u ||: )
