@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGNAME orgRepos <org>
+    
+    get the names of all repos in a given org
+

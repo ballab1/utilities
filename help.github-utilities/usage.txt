@@ -1,0 +1,17 @@
+
+Usage:
+    $PROGNAME [ -h|--help ] | orgrepoinfo | orgrepos | orgteams | teammembers | teamrepos | userinfo
+
+    Common options:
+        -h --help                             Display a basic set of usage instructions
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}
+        -c --credentials <credentials_file>   File container key/value pairs for user=pwd 
+ 
+    get info from GitHub
+
+       orgRepos <org>             get the names of all repos in a given org
+       orgRepoInfo <org> <repo>
+       orgTeams <org>             get the names of all teams in a given org
+       teammembers <teamId>       get the names of all members of given team
+       teamrepos <teamid>
+       userinfo  <user>

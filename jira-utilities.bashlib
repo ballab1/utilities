@@ -1,0 +1,192 @@
+#!/bin/echo 'This script cannot be executabled directly. Please source from another script'
+
+#----------------------------------------------------------------------------------------------
+#  functions for 'jira-utilities'
+#----------------------------------------------------------------------------------------------
+function jira-utilities.allfields()
+{
+    jira.fields
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.checkSupportMaterialsFolders()
+{
+    local start=${1:?}
+    local end=${2:?}
+
+    local -i i last bottom top files
+    local issue topdir
+
+    local base='/disks/jiraproduction'
+    local -i ranges=0
+    local -i missing=0
+    local -i zerofiles=0
+    local -i missingtop=0
+    local -i filecnt=0
+    local -i exists=0
+
+    last=0
+    issue=''
+    i="$start"
+    while [ $(( ++i )) -lt "$end" ]; do
+       bottom=$(( $(( i / 1000 )) * 1000 ))
+       if [ "$bottom" -ne "$last" ]; then
+           (( ranges++ )) ||:
+           last=$bottom
+           top="$(( bottom + 999 ))"
+           topdir="$(printf '%07d-%07d' $bottom $top)"
+       fi
+
+       if [ ! -d "${base}/$topdir" ]; then
+           echo "issues ${topdir} are missing"
+           i="$top"
+           (( missingtop++ )) ||:
+           continue
+       fi
+
+       issue="$(printf 'MDT-%05d' $i)"
+
+       if [ ! -d "${base}/${topdir}/$issue" ]; then
+           (( missing++ )) ||:
+       else
+           files=$(find "${base}/${topdir}/${issue}" -type f | wc -l)
+           echo "$issue,$files"
+           if [ "$files" -eq 0 ]; then
+               (( zerofiles++ )) ||:
+           else
+               (( exists++ )) ||:
+           fi
+       fi
+       (( filecnt++ )) ||:
+    done
+
+    {
+        echo
+        echo "range:         $start-$end = $(( end - start ))"
+        echo "# ranges:      $ranges"
+        echo "filecnt:       $filecnt + $(( missingtop * 1000 ))"
+        echo "zerofiles:     $zerofiles"
+        echo "with files:    $exists"
+        echo "missing:       $missing + $(( missingtop * 1000 ))"
+        echo "missingtop:    $missingtop"
+    } >&2
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.cmdLineArgs()
+{
+    case "${1,,}" in
+        -m|--mode)
+            [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            OPTS['mode']="$2"
+            OPTS['stack']=2
+            return 0;;
+
+        -t|--type)
+            [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            OPTS['type']="$2"
+            OPTS['stack']=2
+            return 0;;
+
+        -o|--out)
+            [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            OPTS['log']="$2"
+            OPTS['stack']=2
+            return 0;;
+    esac
+    return 1
+}
+
+#---------------------------------------------------------------------------------------------- 
+function jira-utilities.elapsedTime()
+{	
+    local -i elapsed=$(( $(date '+%s') - $START_TIME ))
+    if [ $elapsed -gt 2 ];then
+        printf '%02d:%02d:%02d' $((elapsed / 3600)) $((elapsed % 3600 / 60)) $((elapsed % 60))
+    fi
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.initialize()
+{
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.issue()
+{
+    local issue="${1:?}"
+    jira.issue "$issue"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.issueTypeScheme()
+{
+    jira.issueTypeScheme
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.listProjects()
+{
+    jira.listProjects "$@"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.projectInfo()
+{
+    local default="${OPTS['key']:-MDT}"
+    local -r project="${1:-$default}"
+    local -r issueType=${2:-Bug};
+    jira.projectInfo "$project" "$issueType"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.projectTypes()
+{
+    local default="${OPTS['key']:-MDT}"
+    local -r project="${1:-$default}"
+
+    jira.projectTypes "$project"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.remoteLinks()
+{
+    local default="${OPTS['key']:-MDT}"
+    local project="${1:-$default}"
+    jira.remoteLinks "$project"
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.search()
+{
+    local jqlFile=${1:?}
+    
+    # find our jql file using search path
+    local path
+    for path in '' "$(pwd)/searches/jql/" "$PROGRAM_DIR/searches/jql/"; do
+        if [ -e "${path}$jqlFile" ]; then
+            jqlFile="$(readlink -f "${path}$jqlFile")"
+            break
+        fi
+        if [ -e "${path}${jqlFile}.jql" ]; then
+            jqlFile="$(readlink -f "${path}${jqlFile}.jql")"
+            break
+        fi
+    done
+
+
+    local -i status=0
+    local jql
+    jql=$(< "$jqlFile") || status=$?
+    [ $status -ne 0 ] && trap.die "unable to read jqlFile: $jqlFile"'\n'
+    echo "jira.search = $jql" >&2
+    (jq --exit-status '.' <<< "$jql" &> /dev/null) || status=$?
+    [ $status -eq 0 ] || trap.die "invalid JSON specified in JQL"
+
+    jira.search "$jql" || status=$?
+    echo >&2
+    return $status
+}
+
+#---------------------------------------------------------------------------------------------- 

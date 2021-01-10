@@ -1,0 +1,55 @@
+{
+  "name": "deleteartifacts",
+  "cmd": "artifactory-utilities.deleteArtifacts",
+  "message": "delete artifacts from $(registry.SERVER)",
+  "argsCondition": "$# -gt 0",
+  "shift": 1
+}
+{
+  "name": "deletedockerimages",
+  "cmd": "artifactory-utilities.performDelete",
+  "message": "delete docker images from $(registry.SERVER)",
+  "longOpts": "mode",
+  "shortOpts": "m",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "getartifacts",
+  "cmd": "artifactory-utilities.getArtifacts",
+  "message": "get artifacts from $(registry.SERVER)",
+  "argsCondition": "$# -gt 0",
+  "shift": 1
+}
+{
+  "name": "listrepos",
+  "cmd": "artifactory-utilities.listRepos",
+  "message": "list top level repos on $(registry.SERVER)",
+  "argsCondition": "$# -eq 0",
+  "shift": 1
+}
+{
+  "name": "saveartifact",
+  "cmd": "artifactory-utilities.saveArtifact",
+  "message": "save an artifact to a repo on $(artifactory.SERVER)",
+  "longOpts": "file:,repo:",
+  "shortOpts": "f:r:",
+  "argsCondition": "$# -eq 0",
+  "shift": 1
+}
+{
+  "name": "savecbf",
+  "cmd": "artifactory-utilities.saveCBF",
+  "message": "save 'Container_build_framework' directory to $(artifactory.SERVER)",
+  "argsCondition": "$# -eq 0",
+  "shift": 1
+}
+{
+  "name": "search",
+  "cmd": "artifactory-utilities.search",
+  "message": "search for artifacts in $(artifactory.SERVER)",
+  "longOpts": "mode",
+  "shortOpts": "m",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}

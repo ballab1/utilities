@@ -1,0 +1,7 @@
+
+Usage:
+    $PROGNAME pushImage [ --fingerprint  ] <imageName> [ <imageName> [ <imageName> [ ... ]]]
+    
+    push one or more images to $(registry.SERVER)
+       when 'fingerprint' is specified the  associated fingerprint tag (if detected) is pushed
+

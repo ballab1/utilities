@@ -1,0 +1,64 @@
+
+Various operations on the docker subsystem and remote docker registry.
+
+Usage:
+    $PROGNAME [ help [ subcommand ]
+              | clean
+              | delete [ --max <numberOfImages> | --start startTime [ --end endTime ] [ --keepTags ] ] <regex>[:<regex>] <regex>[:<regex>] <regex>[:<regex>] | image@digest
+              | deleteLocal [<regex>:]<regex>
+              | deleteTag [<regex>:]<regex>
+              | digests <repoName>
+              | getRemoteImage <imageName> <imageName> <imageName>
+              | manifests <imageName>
+              | promote <src_tag> <dst_tag> [ <dst_tag> ]
+              | pushImage [ --fingerprint  ] <imageName> <imageName> <imageName>
+              | rename <srcImageName> <dstImageName>
+              | report [[ --catalog ] | [ --summary ] | [ --tags [<repoName>] ] | [ --tag-summary [<repoName>] ] | [ --format <text|json> ] [ --output <fileName> ]]
+              | retagImages < newTag> [ <docker-compose.yml> ]
+              | retagLatest [ <srcTag> [<newTag>] ]
+              | show [ --images ] | [ --networks ] | [ --processes ] | [ --services ]
+              | updateImage <imageName> <imageName> <imageName>
+
+Common options:
+    -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
+    -c --credentials <credentials_file>   File container key/value pairs for user=pwd
+    -q --quiet                            Do not display info about running 'docker' commands or requesting digests
+    -y --no_confirm_delete                Confirm action, otherwise do not delete anything
+
+Commands:
+    help              Display a basic set of usage instructions
+    clean             Clean docker environment by removing old images and stopped containers
+    delete            Delete one or more images by specifying <regex>:<regex>
+          --keepTags    : delete a range of images in a repo by specifying "max # images" + keepTags
+          --max         : delete a range of images in a repo by specifying "max # images"
+          --start       : delete a range of images in a repo by specifying [start] <  > [end]
+                        : delete images by specifying image@digest
+    deleteLocal       Delete local images
+    deleteTag         Delete one or more tags
+    digests           Display the digests for repo
+    getRemoteImage    Get one or more images from some remote, and push to the default repository
+    manifests         Display the manifest for an image
+    promote           Promote (save) all images with <src_tag> to '$(registry.SERVER)' as <latest> and with their <fingerprint> tag
+                        : if <dst_tag> is specified, also save <src_tag> as <dst_tag> in '$(registry.SERVER)'
+    pushimage         Push one or more images to '$(registry.SERVER)'
+          --fingerprint : also push associated fingerprint if detected
+    rename            Rename an image - locally and in '$(registry.SERVER)'
+    report            Generate a report of contents of the registry
+          --catalog     : show the registry catalog (as text)
+          --format      : format output as JSON|TEXT
+          --output      : name of file to output <filename>
+          --keep        : 
+          --tags        : show the tags associated with a repository (as text)
+          --summary     : 
+          --tag-summary : show a summary of tag usage for specified repos
+    retagImages       Retag images defined in docker-compose.yml
+    retagLatest       retag dev to defined tag (or 'latest' if no tag defined)
+    show  [--quiet]   common 'docker commands' with specific options to make more usefule
+          --images      : docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 
+          --networks    : docker networks: also includes ip address and network name
+          --processes   : docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}"
+          --services    : show services defined in docker-compose.yml
+    updateRemoteImage 'GetRemoteImage' and update GIT repo
+
+all registry references '$(registry.SERVER)' are automatically stripped from images and/or repos
+

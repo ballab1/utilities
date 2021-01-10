@@ -1,0 +1,77 @@
+{
+  "name": "allfields",
+  "cmd": "jira-utilities.fields",
+  "message": "display fields from $(jira.SERVER)",
+  "longOpts": "mode",
+  "shortOpts": "m",
+  "argsCondition": "$# -le 1",
+  "shift": 1
+}
+{
+  "name": "issue",
+  "cmd": "jira-utilities.issue",
+  "message": "get all fields for a spcific issue",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "issuetypescheme",
+  "cmd": "jira-utilities.issueTypeScheme",
+  "message": "get all fields for a spcific issue",
+  "argsCondition": "$# -eq 0",
+  "shift": 1
+}
+{
+  "name": "jiraproduction",
+  "cmd": "jira-utilities.checkSuppportMaterialsFolders",
+  "message": "check JIRA support materials folders",
+  "longOpts": "mode",
+  "shortOpts": "m",
+  "argsCondition": "$# -eq 2",
+  "shift": 1
+}
+{
+  "name": "listprojects",
+  "cmd": "jira-utilities.listProjects",
+  "message": "list JIRA projects from $(jira.SERVER)",
+  "longOpts": "",
+  "shortOpts": "",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}
+{
+  "name": "projectinfo",
+  "cmd": "jira-utilities.projectInfo",
+  "message": "display project from $(jira.SERVER)",
+  "longOpts": "mode type",
+  "shortOpts": "m",
+  "argsCondition": "$# -le 1",
+  "shift": 1
+}
+{
+  "name": "projecttypes",
+  "cmd": "jira-utilities.projectTypes",
+  "message": "display project from $(jira.SERVER)",
+  "longOpts": "mode",
+  "shortOpts": "m",
+  "argsCondition": "$# -le 1",
+  "shift": 1
+}
+{
+  "name": "remoteLinks",
+  "cmd": "jira-utilities.remoteLinks",
+  "message": "display remote links for issues in $(jira.SERVER)",
+  "longOpts": "mode",
+  "shortOpts": "m",
+  "argsCondition": "$# -gt 1",
+  "shift": 1
+}
+{
+  "name": "search",
+  "cmd": "jira-utilities.search",
+  "message": "search for issues in $(jira.SERVER)",
+  "longOpts": "mode,out:",
+  "shortOpts": "mo:",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}

@@ -1,0 +1,154 @@
+{
+  "name": "clean",
+  "cmd": "docker-utilities.clean",
+  "isrunning": "docker.isRunning",
+  "message": "clean docker environment by removing old images and stopped containers",
+  "log": "activity.log",
+  "argsCondition": "$# -eq 0",
+  "shift": 1
+}
+{
+  "name": "delete",
+  "action": "docker-utilities.deleteImage",
+  "cmd": "docker-utilities.catalogIterator",
+  "isrunning": "docker.isRunning",
+  "log": "activity.log",
+  "message": "delete images in $(registry.SERVER) by specifying regex",
+  "oper": "docker-utilities.markImageForDeletion",
+  "longOpts": "no_confirm_delete,end:,keepTags,max:,start:",
+  "shortOpts": "e:km:s:y",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}
+{
+  "name": "deletelocal",
+  "cmd": "docker-utilities.deleteLocal",
+  "isrunning": "docker.isRunning",
+  "log": "activity.log",
+  "message": "delete images locally by specifying regex",
+  "argsCondition": "$# -gt 0",
+  "shift": 1
+}
+{
+  "name": "deletetag",
+  "action": "docker-utilities.deleteTagInSpecificRepo",
+  "cmd": "docker-utilities.catalogIterator",
+  "isrunning": "docker.isRunning",
+  "log": "activity.log",
+  "message": "delete specific tag from $(registry.SERVER)",
+  "oper": "docker-utilities.deleteTag",
+  "longOpts": "no_confirm_delete",
+  "shortOpts": "ay",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "digests",
+  "cmd": "docker-utilities.show_digests",
+  "isrunning": "docker.isRunning",
+  "message": "display digests and times for images in $(registry.SERVER)",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "getimage",
+  "cmd": "docker-utilities.getImage",
+  "isrunning": "docker.isRunning",
+  "message": "Get one or more images from some remote, and push to $(registry.SERVER)thirdparty",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "getremoteimage",
+  "cmd": "docker-utilities.getImage",
+  "isrunning": "docker.isRunning",
+  "message": "Get one or more images from some remote, and push to $(registry.SERVER)thirdparty",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "manifests",
+  "cmd": "docker-utilities.manifests",
+  "isrunning": "docker.isRunning",
+  "message": "display manifest of images to $(registry.SERVER)",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "promote",
+  "cmd": "docker-utilities.promote",
+  "isrunning": "docker.isRunning",
+  "message": "promote to $(registry.SERVER)",
+  "argsCondition": "$# -ge 1",
+  "shift": 1
+}
+{
+  "name": "pushimage",
+  "cmd": "docker-utilities.pushImage",
+  "isrunning": "docker.isRunning",
+  "message": "push images to $(registry.SERVER)",
+  "longOpts": "fingerprint",
+  "shortOpts": "f",
+  "argsCondition": "$# -ge 1",
+  "shift": 1
+}
+{
+  "name": "rename",
+  "cmd": "docker-utilities.renameImage",
+  "isrunning": "docker.isRunning",
+  "message": "rename local images and push them to $(registry.SERVER)",
+  "argsCondition": "$# -eq 2",
+  "shift": 1
+}
+{
+  "name": "report",
+  "cmd": "docker-utilities.report",
+  "message": "report remote images in $(registry.SERVER) ",
+  "longOpts": "catalog,format:,output:,summary,tag-summary,tags,keep",
+  "shortOpts": "c:o:stk",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}
+{
+  "name": "retagimages",
+  "cmd": "docker-utilities.retagImages",
+  "isrunning": "docker.isRunning",
+  "message": "retag images defined in docker-compose.yml ",
+  "longOpts": "",
+  "shortOpts": "",
+  "argsCondition": "$# -eq 2",
+  "shift": 1
+}
+{
+  "name": "retaglatest",
+  "cmd": "docker-utilities.retagLatest",
+  "isrunning": "docker.isRunning",
+  "message": "retag all 'dev' tagged images to 'latest' and push to $(registry.SERVER)",
+  "longOpts": "",
+  "shortOpts": "",
+  "argsCondition": "$# -eq 1 || $# -eq 2",
+  "shift": 1
+}
+{
+  "name": "show",
+  "cmd": "docker-utilities.show",
+  "longOpts": "images,networks,processes,services,containers",
+  "shortOpts": "inps",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}
+{
+  "name": "updateimage",
+  "cmd": "docker-utilities.updateImage",
+  "isrunning": "docker.isRunning",
+  "message": "Get one or more images from some remote, push to $(registry.SERVER)thirdparty, and update GIT repo",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}{
+  "name": "updateremoteimage",
+  "cmd": "docker-utilities.updateImage",
+  "isrunning": "docker.isRunning",
+  "message": "Get one or more images from some remote, push to $(registry.SERVER)thirdparty, and update GIT repo",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}

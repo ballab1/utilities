@@ -1,0 +1,27 @@
+
+    Delete one or more artifacts, where <artifact> is its name  
+
+ examples of Artifactory artifact definitions
+
+ specific CBF versions:
+    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-1-g62e4fad.tar.gz
+    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-ge6e068c.tar.gz
+    cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-gfc1d30a.tar.gz
+  specific files:
+    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/cpan/cpanimus/app-cpanimus.1.7044.pm
+    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/cpan/app-cpanimus.1.7044.pm
+    cyclone-devops-mw/cyclone-devops/cyclone-devops/cyclone-devops/perl-carton/app-cpanimus.1.7044.pm
+  specify folders:
+    cyclone-devops-mw/cyclone-devops/cyclone-devops
+    cyclone-devops-mw/cyclone-devops/phpMyAdmin
+    cyclone-devops-mw/cyclone-devops/nginx
+  specify docker images:
+    cyclone-dockerv2-local/devops/alpine/nginx-base/1.15.4/latest
+    cyclone-dockerv2-local/devops/alpine/nginx-base/1.15.4/8aeabe99ace35f4eae9b01f30e91c726daa38f60a1ecf0aa3fb6d32dedd1e42b
+    cyclone-dockerv2-local/devops/alpine/nagios/4.4.2/latest
+    cyclone-dockerv2-local/devops/alpine/nagios/4.4.2/f6cec2d3ae004c570d8633a16d7ead32e7d308014f40d6c6f1f0d0c31276a433
+
+ crrently 'in use' artifacts:
+  cyclone-devops/cyclone-devops/container_build_framework/v3.1-2-gd585ce1.tar.gz
+  cyclone-devops-mw/cyclone-devops/container_build_framework/v3.1-2-gdca205f.tar.gz
+

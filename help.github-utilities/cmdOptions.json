@@ -1,0 +1,49 @@
+{
+  "name": "orgrepocollaborators",
+  "cmd": "github-utilities.orgrepocollaborators",
+  "message": "get list of collaborators for a given repo within an org",
+  "argsCondition": "$# -eq 2",
+  "shift": 1
+}
+{
+ "name": "orgrepoinfo",
+  "cmd": "github-utilities.orgrepoinfo",
+  "message": "get info a given repo within an org",
+  "argsCondition": "$# -eq 2",
+  "shift": 1
+}
+{
+  "name": "orgrepos",
+  "cmd": "github-utilities.orgrepos",
+  "message": "list repos for a given org",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "orgteams",
+  "cmd": "github-utilities.orgteams",
+  "message": "list teams for a given org",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "teammembers",
+  "cmd": "github-utilities.teammembers",
+  "message": "list the members in a given team",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "teamrepos",
+  "cmd": "github-utilities.teamrepos",
+  "message": "list the members in a given team",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}
+{
+  "name": "userinfo",
+  "cmd": "github-utilities.userinfo",
+  "message": "list the members in a given team",
+  "argsCondition": "$# -eq 1",
+  "shift": 1
+}

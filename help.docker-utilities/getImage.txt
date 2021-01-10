@@ -1,0 +1,8 @@
+
+Usage:
+    $PROGNAME getRemoteImage <imageName> [ <imageName> [ <imageName> [ ... ]]]
+
+        getremoteimage    Get one or more images from some remote, and push to the default repository
+
+    Note: 'getImage' is an alias for 'getRemoteImage'
+

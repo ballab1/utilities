@@ -1,0 +1,3 @@
+
+    list JIRA properties about specifed project
+

@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGNAME retagImages < newTag> [ <docker-compose.yml> ]
+
+        Retag images defined in docker-compose.yml
+    

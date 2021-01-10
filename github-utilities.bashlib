@@ -1,0 +1,176 @@
+#!/bin/echo 'This script cannot be executabled directly. Please source from another script'
+
+#----------------------------------------------------------------------------------------------
+#  functions for 'github-utilities'
+#----------------------------------------------------------------------------------------------
+function github-utilities.cmdLineArgs()
+{
+    case "${1,,}" in
+        -b|--b|--base)
+            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            OPTS['base']="$2"
+            OPTS['stack']=2
+            return 0;;
+    esac
+    return 1
+}
+
+#---------------------------------------------------------------------------------------------- 
+function github-utilities.elapsedTime()
+{
+    local -i elapsed=$(( $(date '+%s') - $START_TIME ))
+    if [ $elapsed -gt 2 ];then
+        printf '%02d:%02d:%02d' $((elapsed / 3600)) $((elapsed % 3600 / 60)) $((elapsed % 60))
+    fi
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.initialize()
+{
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgInfo_Devops()
+{
+    local org repoId repoName teamId teamName line
+    local -i status
+    echo "Starting process $$ at $(TZ=New_York date)"
+
+    local loc='.'
+    while read -r org; do
+        (github.orgRepos "$org" > "${loc}/${org}/repos.json") && status=$? || status=$?
+        (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
+    done < "${PROGRAM_DIR}/devops_orgs.git"
+    echo
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgInfo_MRES()
+{
+    local org repoId repoName teamId teamName line
+    local -i status
+
+    local loc='.'
+    while read -r org; do
+        mkdir -p "${loc}/${org}" ||:
+        (github.orgRepos "$org" > "${loc}/${org}/repos.json") && status=$? || status=$?
+        while read -r line; do
+            repoId="${line%%,*}"
+            repoName="${line#*, }"
+            (github.orgRepoInfo "$org" "$repoName" > "${loc}/${org}/repos.${repoName}.info.json") && status=$? || status=$?
+            (github.repoCollaborators "$org" "$repoName" > "${loc}/${org}/repos.${repoName}.collaborators.json") && status=$? || status=$?
+        done < <(jq -r '.[]|"\(.id), \(.name)"' "${loc}/${org}/repos.json")
+
+        (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
+        while read -r line; do
+            teamId="${line%%,*}"
+            teamName="${line#*, }"
+            (github.teamMembers "$teamId" > "${loc}/${org}/repos.${teamName}.members.json") && status=$? || status=$?
+            (github.teamRepos "$teamId" > "${loc}/${org}/repos.${teamName}.repos.json") && status=$? || status=$?
+        done < <(jq -r '.[]|"\(.id), \(.name)"' "${loc}/${org}/teams.json")
+    done < "${PROGRAM_DIR}/mrs_orgs.git"
+
+    github-utilities.process_files "$loc"
+    echo
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgrepocollaborators()
+{
+    local -r org="${1:?}"
+    local -r repo="${2:?}"
+
+    github.repoCollaborators "$org" "$repo"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgrepoinfo()
+{
+    local -r org="${1:?}"
+    local -r repo="${2:?}"
+
+    github.orgRepoInfo "$org" "$repo"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgrepos()
+{
+    local -r org="${1:?}"
+
+    github.orgRepos "$org"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.orgteams()
+{
+    local -r org="${1:?}"
+
+    github.orgTeams "$org"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.process_files()
+{
+    local pwd="${1:?}"
+    local -A DATA=(['collaborators']="id login site_admin type permissions.admin permissions.push permissions.pull"
+                   ['members']="id login site_admin type"
+                   ['repos']="id name owner.type owner.site_admin private description fork size archived default_branch permissions.admin permissions.push permissions.pull full_name"
+                   ['teams']="id name slug description privacy permission"
+                  )
+
+    while read -r dir; do
+        local org="$(basename "$dir")"
+        for objtype in "${!DATA[@]}"; do
+            # verify there are files to process
+            local -a files
+            mapfile -t files < <(find "${dir}" -mindepth 1 -maxdepth 1 -name "*.${objtype}.json" ||:)
+            [ "${#files[*]}" -eq 0 ] && continue
+
+            local -a exp
+            mapfile -t exp < <(awk '{print $0}' RS=' ' <<< ${DATA[$objtype]} ||:)
+            local last=$(( ${#exp[@]} - 1 ))
+            for (( i=0; i<"${#exp[@]}"; i++ ));do
+                [ -z "${exp[i]:-}" ] && continue
+                if [ $i -eq $last ]; then
+                    exp[i]='\(.'${exp[i]}')'
+                else
+                    exp[i]='\(.'${exp[i]}'),'
+                fi
+            done
+
+            local logfile="${pwd}/${org}.${objtype}.csv"
+            :> "$logfile"
+            local jexp='.[]|"'"${org}${objtype},$(basename "$file"),${exp[*]}"'"'
+            for file in "${files[@]}"; do
+                jq -r "$jexp" "$file" >> "$logfile"
+            done
+        done
+    done < <(find "$pwd" -mindepth 1 -maxdepth 1 -type d)
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.teammembers()
+{
+    local -ri teamId="${1:?}"
+
+    github.teamMembers "$teamId"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.teamrepos()
+{
+    local -ri teamId="${1:?}"
+
+    github.teamRepos "$teamId"
+}
+
+#----------------------------------------------------------------------------------------------
+function github-utilities.userinfo()
+{
+    local -r user="${1:?}"
+
+    github.userInfo "$user"
+}
+
+#---------------------------------------------------------------------------------------------- 

@@ -1,0 +1,13 @@
+
+Usage:
+    $PROGNAME rename <srcImage> <dstImage>
+    
+    rename an image
+        Rename an image - locally and in $(registry.SERVER)
+
+    examples:
+            specify src_image and dst_image
+            specify src_image<regex>, srcTag and dstTag on local system
+            specify src_image<regex>, srcTag and dstTag in Registry
+            specify src_image<regex>, srcTag and dstTag in both Registry and local system
+

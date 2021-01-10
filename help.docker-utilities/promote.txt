@@ -1,0 +1,7 @@
+
+Usage:
+    $PROGNAME promote <src_tag> <dst_tag> [ <dst_tag> ]
+
+    Promote (save) all images with <src_tag> to '$(registry.SERVER)' as <latest> and with their <fingerprint> tag
+                        : if <dst_tag> is specified, also save <src_tag> as <dst_tag> in '$(registry.SERVER)'
+

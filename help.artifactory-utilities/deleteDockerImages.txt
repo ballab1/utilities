@@ -1,0 +1,3 @@
+
+    Delete one or more artifacts, where <artifact> is its name  
+

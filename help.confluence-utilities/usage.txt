@@ -1,0 +1,11 @@
+
+Usage:
+    $PROGNAME [ -h|--help ] <repository>
+
+    Common options:
+        -h --help                             Display a basic set of usage instructions
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}
+        -c --credentials <credentials_file>   File container key/value pairs for user=pwd 
+ 
+    get info from Confluence
+
