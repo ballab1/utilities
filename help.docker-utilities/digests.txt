@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME digests <repoName>
+    
+    display the digests and times of all images in a repository
+

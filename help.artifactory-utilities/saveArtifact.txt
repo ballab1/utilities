@@ -1,0 +1,10 @@
+
+Upload an Artifact to the devops area in Artifactory 
+
+Usage:
+
+    Common options:
+        -f --file <filename>   Name of file to upload
+        -r --repo <reponame>   Name of repository. This is the folder inside https://afeoscyc-mw.cec.lab.emc.com/artifactory/cyclone-devops/cyclone-devops
+                               where the artifact will be stored. No checks for duplicates are performed
+

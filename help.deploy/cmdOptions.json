@@ -1,0 +1,32 @@
+{
+  "name": "clean",
+  "cmd": "deploy.clean",
+  "message": "completely remove any workspace which exists. If services are running, then bring them down first.",
+  "argsCondition": "$# -eq 0",
+  "shift": 1
+}
+{
+  "name": "down",
+  "cmd": "deploy.down",
+  "message": "if services are running, then bring them down",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}
+{
+  "name": "init",
+  "cmd": "deploy.initWorkspace",
+  "message": "create a new workspace but do not start any services",
+  "longOpts": "dev,latest,tag:",
+  "shortOpts": "dlt:",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}
+{
+  "name": "up",
+  "cmd": "deploy.restart",
+  "message": "deploy (or redeploy) services. Use existng workspace if it exists, or create a new workspace if none exists",
+  "longOpts": "dev,latest,tag:",
+  "shortOpts": "dlt:",
+  "argsCondition": "$# -ge 0",
+  "shift": 1
+}

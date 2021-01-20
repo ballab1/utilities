@@ -1,132 +1,39 @@
 #!/bin/bash
 
 #----------------------------------------------------------------------------------------------
-function jenkins-utilities.usage()
-{
-    local -i exit_status=${1:-1}
-
-    cat >&2 << EOF
-Usage:
-    $PROGNAME [ -h|--help ] <repository> | <image> <image>
-
-    Common options:
-        -h --help                             Display a basic set of usage instructions
-        -u --user <username>                  Defaults to \${USERNAME:-\$USER}
-        -c --credentials <credentials_file>   File container key/value pairs for user=pwd 
- 
-    get info from GitHub
-
-EOF
-    exit "$exit_status"
-}
-
-#----------------------------------------------------------------------------------------------
-function jenkins-utilities.cmdLineArgs()
-{
-    # Parse command-line options into above variable
-    local -r longoptions='help,Help,HELP,debug,user:,credentials:,base:,server:'
-    local -r shortoptions='Hhdc:u:b:s:'
-    local -r options=$(getopt --longoptions "$longoptions" --options "$shortoptions" --name "$PROGNAME" -- "$@") || jenkins-utilities.usage $?
-    eval set -- "$options"
-
-    local -A opts=(['base']="$(pwd)")
-    [ ${DEBUG:-0} -ne 0 ] && opts['debug']=$DEBUG 
-    while [ "${1:-}" ]; do
-        case "${1,,}" in
-            -h|--h|--help|-help)  jenkins-utilities.usage 1;;
-            -d|--d|--debug)       opts['debug']=1; shift;;
-            -u|--u|--user)        opts['user']="$2"; shift 2;;
-            -c|--c|--credentials) opts['credentials']="$2"; shift 2;;
-            -b|--b|--base)        opts['base']="$2"; shift 2;;
-            -s|--s|--server)      opts['server']="$2"; shift 2;;
-            --)                   shift; break;;
-            *)                    break;;
-        esac
-    done
-
-    # show args
-    if [ ${opts['debug']:-0} -gt 0 ]; then
-        {
-            for i in "${!opts[@]}"; do
-               printf '%s: %s\n' $i "${opts[$i]}"
-            done
-            echo 'args:'
-            for i in "$@"; do
-               printf '   %s\n' "$i"
-            done
-            echo
-        } >&2
-    fi
- 
-    appenv.results "$@"
-}
-
-#----------------------------------------------------------------------------------------------
-function jenkins-utilities.main()
-{
-    # define our 'GLOBALS'
-    declare -A OPTS=()
-
-    # extract out options, and handle the common options
-    eval "OPTS=( $1 )"
-    readonly OPTS
-    shift
-    [ "${OPTS['cmd']:-}" ] || trap.die 'No command option provided.'
- 
- 
-    [ "${OPTS['credentials']:-}" ] && __SECRETS_FILE="${OPTS['credentials']}"
-    if [ "${OPTS['user']:-}" ]; then
-        export USERNAME="${OPTS['user']}"
-        export USER="${OPTS['user']}"
-
-        export _JENKINS_USER="${OPTS['user']}"
-        export _JENKINS_CREDENTIALS=$(credentials.get jenkins)
-    fi
-    export DEBUG=${OPTS['debug']:-0}
- 
-
-    # perform what was asked
-    if [ ${OPTS['debug']:-0} -ne 0 ]; then
-        echo "cmd:    ${OPTS['cmd']:-}" >&2
-        echo "oper:   ${OPTS['oper']:-}" >&2
-        echo "action: ${OPTS['action']:-}" >&2
-    fi
-    local -A OPTS
-
-    echo
-}
-
-#----------------------------------------------------------------------------------------------
 #
 #      MAIN
 #
 #----------------------------------------------------------------------------------------------
 
-declare -i start=$(date '+%s')
-declare -r PROGNAME="$( basename "${BASH_SOURCE[0]}" )"
+# declarations of MUST HAVE globals
 declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+declare -r PROGRAM_NAME="$(basename "${BASH_SOURCE[0]}")"
+declare -r LOGFILE="$(pwd)/${PROGRAM_NAME}.log"
+declare -r LIB_NAME='jenkins-utilities'
+declare -A OPTS=()
+declare -a ARGS=()
 
-
-declare -r loader="${PROGRAM_DIR}/appenv.bashlib"
+# load our libraries
+declare -r loader="${PROGRAM_DIR}/bashlib/appenv.bashlib"
 if [ ! -e "$loader" ]; then
     echo 'Unable to load libraries' >&2
     exit 1
 fi
 source "$loader"
-appenv.loader 'jenkins-utilities.main'
+appenv.initialize "$@"
 
-#lib.checkAppVersion 'docker-compose' '1.18.0'
-#lib.checkAppVersion 'docker' '17.12.0'
-#lib.checkAppVersion 'jq' '1.5'
-#lib.checkAppVersion 'curl' '7.40.0'
-
-
+# our main script
 declare -i status=0
-declare -a args
-args=( $( jenkins-utilities.cmdLineArgs "$@" ) ) && status=$? || status=$?
-[ $status -ne 0 ] || jenkins-utilities.main "${args[@]:-}" && status=$? || status=$?
+{
+    if [ "${OPTS['user']:-}" ]; then
+        export _JENKINS_USER="${OPTS['user']}"
+        export _JENKINS_CREDENTIALS=$(credentials.get jenkins)
+    fi
 
-declare -i elapsed=$(( $(date '+%s') - start ))
-[ $elapsed -gt 1 ] && printf '\nElapsed time: %s\n' $(timer.fmtElapsed $elapsed) >&2
+    # regular output
+    "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]}" && status=$? || status=$?
+
+} 2>&1 | tee "$LOGFILE"
 
 exit $status

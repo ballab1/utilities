@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME orgTeams <org>
+    
+    get the names of all teams in a given org
+

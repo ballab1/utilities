@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME teamRepos <teamId>
+    
+    get the names of all repos in a given org
+

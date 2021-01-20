@@ -1,0 +1,9 @@
+
+Usage:
+    $PROGRAM_NAME deleteTag <regex>[:<regex>]
+
+    delete Tag In Specific Repo
+        delete one or more tags matching <regex>:tag from specifc repo
+
+NOTE: a log file is always created when using 'deleteTag'
+

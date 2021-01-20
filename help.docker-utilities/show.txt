@@ -1,0 +1,12 @@
+
+Usage:
+    $PROGRAM_NAME show [--quiet] [ --images ] | [ --networks ] | [ --processes ] | [ --services ]
+
+        common 'docker commands' with specific options to make more usefule
+              --images      : docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 
+              --networks    : docker networks: also includes ip address and network name
+              --processes   : docker ps --format "table {{.Names}}\t{{.ID}}\t{{.Size}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}"
+              --services    : show services defined in docker-compose.yml
+
+   when the '--quiet' option is provided, only the ID is shown
+

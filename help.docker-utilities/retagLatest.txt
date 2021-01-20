@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME retagLatest [ <srcTag> [<newTag>] ]
+    
+        retag dev to defined tag (or 'latest' if no tag defined)
+

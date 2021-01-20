@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME deleteLocal <regex>[:<regex>]
+
+    delete local images matching given. (images reamin in $(registry.SERVER))
+

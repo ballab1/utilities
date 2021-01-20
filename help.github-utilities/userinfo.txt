@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME userinfo <user>
+    
+    get the names of all repos in a given org
+

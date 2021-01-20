@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME manifests <imageName>
+    
+    display the manifest for an image
+

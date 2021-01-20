@@ -1,0 +1,21 @@
+
+Usage:
+    $PROGRAM_NAME report [ [ <repoName> ] |
+                            [ --catalog ] |
+                            [ --summary ] | 
+                            [ --tags [ <repoName> ] ] | 
+                            [ --tag-summary [ <repoName> ] ] | 
+                            [ --format <text|json> ] |
+                            [ --output <fileName> ]]
+              
+    Generate a report of contents of the registry
+              --catalog     : show the registry catalog (as text)
+              --tags        : show the tags associated with a repository (as text)
+              --summary     : 
+              --tag-summary : show a summary of tag usage for specified repos
+
+    options:
+              --format      : format output as JSON|TEXT
+              --output      : name of file to output <filename>
+              --keep        : 
+

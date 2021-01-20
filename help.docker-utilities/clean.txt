@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME clean
+
+        remove old images and stopped containers then display a list of existing containers
+

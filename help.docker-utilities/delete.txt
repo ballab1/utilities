@@ -1,0 +1,35 @@
+
+Usage:
+    $PROGRAM_NAME delete [ --max <numberOfImages>
+                     | --start startTime [ --end endTime ] [ --keepTags ] ] <regex>[:<regex>] [ <regex>[:<regex>] [ <regex>[:<regex>] [...]]]
+                     | image@digest [ image@digest ] [ image@digest ]
+                [ -q|--quiet ] [ -y|--no_confirm_delete ]
+
+        Delete one or more images and/or repos by specifying <regex>:<regex>
+              --keepTags    : delete a range of images in a repo by specifying "max # images" + keepTags
+              --max         : delete a range of images in a repo by specifying "max # images"
+              --start       : delete a range of images in a repo by specifying [start] <  > [end]
+                            : delete images by specifying image@digest
+
+    Common options:
+        -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
+        -c --credentials <credentials_file>   File container key/value pairs for user=pwd
+        -q --quiet              Confirm action, otherwise do not delete anything
+        -y --no_confirm_delete  Confirm action, otherwise do not delete anything
+
+
+    examples:
+            delete an image by specifying image@sha256:digest
+            delete specific images across multiple repos by specifying <regex>:<regex>
+              delete an image by specifying image:tag
+              delete a range of images in a repo by specifying image:<regex>
+              delete a repo by specifying image
+              delete a repo by specifying image:*
+              delete multiple repos by specifying <regex>
+              delete images in all repos matching *:tag
+            delete a range of images in a repo by specifying "max # images"
+            delete a range of images in a repo by specifying "max # images" + keepTags
+            delete a range of images in a repo by specifying [start]< createTime >[end]
+
+NOTE: a log file is always created when using 'delete'
+

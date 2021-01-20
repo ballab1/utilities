@@ -1,0 +1,6 @@
+
+Usage:
+    $PROGRAM_NAME teammembers <org>
+    
+    get the names of all members of given team
+

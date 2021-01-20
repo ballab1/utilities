@@ -1,0 +1,155 @@
+#!/bin/echo 'This script cannot be executabled directly. Please source from another script'
+
+#----------------------------------------------------------------------------------------------
+#  functions for 'artifactory-utilities'
+#----------------------------------------------------------------------------------------------
+function artifactory-utilities.cmdLineArgs()
+{
+    case "${1,,}" in
+        -f|--f|--file)
+            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            OPTS['file']=$2
+            OPTS['shift']=2
+            return 0;;
+
+        -m|--m|--mode)
+            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            OPTS['delete_mode']="$2"
+            OPTS['shift']=2
+            return 0;;
+
+        -o|--o|--outfile)
+            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            OPTS['log']="$2"
+            OPTS['shift']=2
+            return 0;;
+
+        -r|--r|--repo)
+            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            OPTS['repo']=$2
+            OPTS['shift']=2
+            return 0;;
+
+    esac
+    return 1
+}
+
+#--------------------------------------------------------------------
+function artifactory-utilities.getArtifacts()
+{
+    local ref;
+    for ref in "$@"; do
+        artifactory.GET "$ref" ||: 
+    done
+}
+
+#----------------------------------------------------------------------------------------------
+function artifactory-utilities.initialize()
+{
+    return 0
+}
+
+#--------------------------------------------------------------------
+function artifactory-utilities.listRepos
+{
+    artifactory.GET "$(artifactory.REST_API)/repositories" 
+}
+
+#---------------------------------------------------------------------------------------------- 
+function artifactory-utilities.onExit()
+{
+    return 0
+}
+
+#--------------------------------------------------------------------
+function artifactory-utilities.performDelete
+{
+    local -r aqlfile="${OPTS['aql']}"
+
+    local -a items=()
+    mapfile -t items < <(artifactory.search "$aqlfile" | jq --compact-output --monochrome-output --raw-output '.results[].path?' ||:)
+    [ ${#items[*]} -gt 0 ] || trap.die "no artifacts to delete"
+
+    artifactory-utilities.deleteDockerImages "${items[@]}"
+}
+
+#--------------------------------------------------------------------
+function artifactory-utilities.saveArtifact
+{
+    if [ $# -ne 0 ] || [ -z "${OPTS['file']}" ] || [ -z "${OPTS['repo']}" ]; then
+        term.elog '\nERROR: invalid command options\n' 'error'
+        exit 1
+    fi
+
+    [ -e "${OPTS['file']}" ] || trap.die "Specified file: '${OPTS['file']}' does not exist"
+ 
+    # target is the folder in Artifactory where the artifact gets stored
+    local target="${OPTS['repo']:-}"
+    [ -z "${target:-}" ] && return 1
+
+    # upload is the actual file to upload
+    local uploadFile="${OPTS['file']:-}"
+    [ -z "${uploadFile:-}" ] && return 1
+
+    artifactory.uploadFile "${target}/$(basename "$uploadFile")"  "$uploadFile"
+}
+
+#--------------------------------------------------------------------
+function artifactory-utilities.saveCBF
+{
+    [ ! -d container_build_framework ] && trap.die 'No framework directory located'
+    [ ! -e container_build_framework/.git ] && trap.die 'CBF is not a git directory'
+
+    local filename="$(cd container_build_framework; git describe --tags --dirty --always)"
+    [[ "$filename" == *-dirty* ]] && trap.die 'Please commit CBF directory prior to uploading to Artifactory'
+
+#    export DO_PUSH=0   # set to non-0 for dry-run
+    [ ${DO_PUSH:-0} -eq 0 ] && trap artifactory-utilities.onExit EXIT 
+
+    export TMP_DIR="$(mktemp -d)"
+    artifactory.saveCBF "${filename}.tar.gz" "$TMP_DIR"
+    echo
+}
+
+#--------------------------------------------------------------------
+function artifactory-utilities.search()
+{
+    local aql="${1:?}"
+    aql="$(artifactory-utilities.verifyAqlFile "$aql")"
+
+    {
+        echo
+        echo 'artifactory.search:'
+        while read -r line; do
+            term.log '    '"$line"'\n' 'cyan'
+        done < "$aql"
+        echo
+    } >&2
+
+    artifactory.search "$aql"
+}
+
+#----------------------------------------------------------------------------------------------
+function artifactory-utilities.verifyAqlFile()
+{
+    local aqlFile="${1:?}"
+
+    local path
+    for path in '' "$(pwd)/searches/aql/" "$PROGRAM_DIR/searches/aql/"; do
+        if [ -e "${path}$aqlFile" ]; then
+            aqlFile="$(readlink -f "${path}$aqlFile")"
+            break
+        fi
+        if [ -e "${path}${aqlFile}.aql" ]; then
+            aqlFile="$(readlink -f "${path}${aqlFile}.aql")"
+            break
+        fi
+    done
+    
+
+    [ -e "$aqlFile" ] || trap.die "unable to locate AQL file: '$aqlFile'"
+    echo "$aqlFile"
+    return 0
+}
+
+#---------------------------------------------------------------------------------------------- 

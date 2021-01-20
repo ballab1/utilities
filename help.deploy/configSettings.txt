@@ -1,0 +1,15 @@
+
+Please ensure that your 'git' configuration ( ~/.gitconfig) is valid. It should contain
+ 
+ [user]
+     name = Surname, Firstname
+     email = first.surname@myorg.com
+ [adsk "github"]
+     account = ntlogin
+
+You may use the following commands
+ 
+  git config --local --set user.name="Surname, Firstname"
+  git config --local --set user.email="first.surname@myorg.com"
+  git config --local --set adk.github.account="ntlogin"
+

@@ -1,0 +1,31 @@
+
+Various operations with Artifactory.
+
+Usage:
+    $PROGRAM_NAME [ help [ subcommand ]
+              | deleteArtifacts    <artifact> [ <artifact> [ <artifact> ]...]
+              | deleteDockerImages <aqlFile> [  <aqlFile> [  <aqlFile> ]...]
+              | getArtifacts    <artifact> [ <artifact> [ <artifact> ]...]
+              | listRepos
+              | saveArtifact 
+                   -f --file <filename>   Name of file to upload
+                   -r --repo <reponame>   Name of repository. 
+                                          This is the folder where the artifact will be stored. No checks for duplicates are performed
+                                          inside $(artifactory.SERVER)
+              | saveCBF               
+              | search <aqlFile>
+
+Common options:
+    -u --user <username>                  Defaults to \${USERNAME:-\$USER}                  
+    -c --credentials <credentials_file>   File containing key/value pairs for user=pwd
+
+Commands:
+    help                  Display a basic set of usage instructions
+    deleteArtifacts       Delete one or more artifacts, where <artifact> is its name  
+    deleteDockerImages    Delete one or more tags - see 'usage examples'
+    getArtifacts          Get one or more artifacts, where <artifact> is its name  
+    listRepos             List repositories
+    saveArtifact          Save an Artifact to a specified repository
+    saveCBF               Save CBF to Artifactory
+    search                Display the manifest for an image
+
