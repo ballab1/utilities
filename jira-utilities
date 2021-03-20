@@ -7,9 +7,10 @@
 #----------------------------------------------------------------------------------------------
 
 # declarations of MUST HAVE globals
-declare -r PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-declare -r PROGRAM_NAME="$(basename "${BASH_SOURCE[0]}")"
-declare -r LOGFILE="$(pwd)/${PROGRAM_NAME}.log"
+PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+PROGRAM_NAME="$(basename "${BASH_SOURCE[0]}")"
+LOGFILE="$(pwd)/${PROGRAM_NAME}.log"
+
 declare -r LIB_NAME='jira-utilities'
 declare -A OPTS=()
 declare -a ARGS=()

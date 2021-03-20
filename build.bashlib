@@ -329,6 +329,37 @@ function build.containersForOS()
 }
 
 #----------------------------------------------------------------------------------------------
+# parse all BASH tokens/variables from a file
+function build.getTokens()
+{
+  local file="${1:?}"
+
+  ########    | *removeUnwantedLines*      | *removeTrailingSpaces, encode_$$,       separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*,      restore_$$    | sort -u -t '='
+  cat "$file" | grep -vE '^((\s*)|(#.*))$' | sed -E -e 's|\s+$||'   -e 's|\$\$|\v|g' -e 's|\$|\n$|g' | grep -vE '^((\s*)|(#.*))$' | grep '\$'        | sed -E -e 's|^\$\{?||' -e 's|"||' -e 's|\}.*$||' -e 's|:-|=|' -e 's|:|=|' -e 's|^([^=]+)=?$|\1=?|' -e 's|\v|$$|g' | sort -u -t '='
+}
+
+#----------------------------------------------------------------------------------------------
+function build.createEnvFile()
+{
+    local -r dc_yaml=${1:?}
+    local tmp_file="${dc_yaml}.tmp" 
+
+    local key
+    {
+        while read -r line; do
+            key="${line%%=*}"
+            if [ "${!key:-}" ]; then
+                echo "${key}=${!key}"
+            else
+                echo "$line"
+            fi
+        done < <(build.getTokens "$dc_yaml")
+    } > "$tmp_file"
+
+    lib.updateFile "$tmp_file" "$(dirname "$dc_yaml")/.env"
+}
+
+#----------------------------------------------------------------------------------------------
 function build.dependencyInfo()
 {
     # get the following
@@ -775,6 +806,7 @@ function build.updateContainer()
 
     # rebuild container because no container exists with the correct fingerprint
     build.logger "building $actualImage"
+    build.createEnvFile "$compose_yaml"
     docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
 
     build.changeImage "$taggedImage" "$actualImage"

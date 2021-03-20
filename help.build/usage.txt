@@ -18,7 +18,7 @@ Usage:
         -o --os <osName>                      specify OS <osName> that will be used. Default all OS types defined
         -p --push                             always push image to regitry
            --no-push                          never push image to registry
-        -u --user <username>                  Defaults to \${USERNAME:-\$USER}
+        -u --user <username>                  Defaults to \${USERNAME:-$USER}
            --credentials <credentials_file>   File container key/value pairs for user=pwd
 
     build one or more component repos
