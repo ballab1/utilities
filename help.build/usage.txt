@@ -6,7 +6,8 @@ Usage:
               [ --logdir <logDir> ]
               [ -l | --logfile <logName> ]
               [ -o | --os <osName> ]
-              [ -p | --push ]
+              [ -p | --push ] | [ --no-push ]
+              [ --no-build ]
               [ <repoName> <repoName> <repoName> ]
 
     Common options:
@@ -16,6 +17,7 @@ Usage:
            --logdir                           log directory. If not specified, defalts to
         -l --logfile <logName>                log build results to <logName>. Defaults to build.YYYYMMDDhhmmss.log
         -o --os <osName>                      specify OS <osName> that will be used. Default all OS types defined
+           --no-build                         do not build containers (just generate '.env' files to allow cmdline builds with 'docker-compose build')
         -p --push                             always push image to regitry
            --no-push                          never push image to registry
         -u --user <username>                  Defaults to \${USERNAME:-$USER}

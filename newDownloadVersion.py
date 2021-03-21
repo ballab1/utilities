@@ -106,7 +106,7 @@ class CbfDownload:
 
     def __init__(self, lines, args):
         self.lines = lines
-        self.credentials = args.credentials
+        self.credentials = '{}:{}'.format(args.user, args.credentials)
         self.versions = []
         self.dict = {}
         self.name = None
@@ -150,8 +150,8 @@ class CbfDownload:
     def test(self, version):
         if version in self.versions:
             print 'version {} already exists\n'.format(version)
-#            self.insert_at = -1
-            sys.exit(1)
+            return True
+        return False
 
     def actualUrl(self, url, version, versions):
         vstring = '${' + self.name + "['version']}"
@@ -276,6 +276,7 @@ class CbfDownloadFile:
         """
         self.download = args.download
         self.credentials = args.credentials
+        self.verify_remote = args.remote
         version = args.version
         version = version.strip('\"')
         version = version.strip("\'")
@@ -291,8 +292,11 @@ class CbfDownloadFile:
 
     def update_file(self, versions):
         i = 0
-        self.cbf_file.test(self.version)
         download = self.cbf_file
+        if self.cbf_file.test(self.version):
+            if self.verify_remote and download.remote_url:
+                download.checksum(self.version, versions)
+            sys.exit(1)
         tmpfile = self.download + '.new'
         if os.path.isfile(tmpfile):
             os.remove(tmpfile)
@@ -324,14 +328,16 @@ class GetArgs:
         p.add_argument('-d', '--download', required=False, help='Name of file in "build/actions_folder/04.downloads" to use.')
         p.add_argument('-p', '--project', required=True, help='Project directory. If not specified, defaults to current directory')
         p.add_argument('-v', '--version', required=True, help='version to add to download file')
+        p.add_argument('-r', '--remote', action='store_true', required=False, help='verify remote_url file exists')
         p.add_argument('-u', '--user', required=False, help='username')
-        p.add_argument('-c', '--credentials', required=False, help='file containing user=password paries')
+        p.add_argument('-c', '--credentials', required=False, help='file containing user=password entries')
 
         args = p.parse_args()
         self.project = args.project
         self.download = args.download
         self.version = args.version
         self.user = args.user
+        self.remote = args.remote
         self.credentialsFile = args.credentials
 
     def validate_options(self):
@@ -378,9 +384,12 @@ class GetArgs:
                 raise ValueError('credentials file "{}" does not exist'.format(self.credentials))
 
             with open(self.credentialsFile) as f:
+                key = "^\s*{}\s*[=:]\s*'([^']+)'".format(self.user)
                 for line in f:
-                    if line.startswith(self.user):
-                        self.credentials = line.replace('=', ':').rstrip()
+                    pwd = re.match(key, line)
+                    if pwd:
+                        self.credentials = pwd.group(1)
+                        break
 
 
 

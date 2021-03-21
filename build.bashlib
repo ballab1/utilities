@@ -10,6 +10,9 @@ function build.all()
     local -r allStartTime=$(timer.getTimestamp)
 
     cd "${OPTS['base']}" || trap.die "Invalid base directory specified: ${OPTS['base']}"
+    # if no-build is specified, (just create '.env' files) the force to make sure all variables are availble
+    [ "${OPTS['build']:-0}" != 0 ] && OPTS['force']=1
+
 
     local build_yaml="${OPTS['base']}/build.yml"
     [ -e "$build_yaml" ] || trap.die "Unable to locate build configuration file: ${build_yaml}"
@@ -18,7 +21,7 @@ function build.all()
 
     VERSIONS_DIRECTORY="${OPTS['base']}/versions"
     local -a files=()
-    mapfile -t files < <(ls -1A "$VERSIONS_DIRECTORY" | grep -vF '.' ||:)
+    mapfile -t files < <(find "$VERSIONS_DIRECTORY" -maxdepth 1 -mindepth 1 -type f ||:)
     [ "${#files[*]}" -eq 0 ] && trap.die "No version information available."
 
 
@@ -42,8 +45,8 @@ function build.all()
     local key val
     while read -r key; do
         val="$(jq --compact-output --monochrome-output --raw-output '.environment.'"$key" <<< "$BUILD_YAML")"
-        eval export $key="$val"
-        readonly $key
+        eval export "$key"="$val"
+        readonly "$key"
     done < <(jq --compact-output --monochrome-output --raw-output '.environment|keys[]' <<< "$BUILD_YAML")
 
 
@@ -53,7 +56,7 @@ function build.all()
     [ -z "${KAFKA_PRODUCER:-}" ] || [ ! -e "$KAFKA_PRODUCER" ] && term.elog 'Unable to locate KAFKA_PRODUCER script. No metrics gathered\n' 'yellow'
     [ -z "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && term.elog 'KAFKA_BOOTSTRAP_SERVERS not defined. No metrics gathered\n' 'yellow'
 
-    echo "Operating Systems to build:        $(IFS=' ' echo ${OSes[*]:-})"
+    echo "Operating Systems to build:        $(IFS=' ' echo "${OSes[*]:-}")"
     echo "Container Build Framework version: $cbf_version"
     [ "${KAFKA_BOOTSTRAP_SERVERS:-}" ] && echo "kafka servers:                     $KAFKA_BOOTSTRAP_SERVERS"
     [ "${KAFKA_PRODUCER:-}" ] && echo "kafka_producer:                    $KAFKA_PRODUCER"
@@ -62,7 +65,7 @@ function build.all()
     local -i status=0
     local request_cbf="${CBF_VERSION:-}"
     for containerOS in "${OSes[@]}"; do
-        [ ${containerOS:-} ] || continue
+        [ "${containerOS:-}" ] || continue
         [ -e "$VERSIONS_DIRECTORY/$containerOS" ] || continue
         [ "${request_cbf:-}" ] || CBF_VERSION="$cbf_version"
         # run in separate shell to avoid "VERSIONS" conflicting
@@ -214,6 +217,10 @@ function build.cmdLineArgs()
            OPTS['push']=-1
            OPTS['shift']=1;;
 
+        --no-build)
+           OPTS['build']=-1
+           OPTS['shift']=1;;
+
         -o|--o|--os)
             [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['os']="$2"
@@ -226,7 +233,7 @@ function build.cmdLineArgs()
 function build.checkSetup()
 {
     [ -e "${OPTS['base']}/build.yml" ] || trap.die "Unable to locate build configuration file: ${OPTS['base']}/build.yml"
-    if [ "${OPTS['os']:-}" ] && [ $(grep -cEs "${OPTS['os']}" <<< "$(lib.yamlToJson "${OPTS['base']}/build.yml" | jq --compact-output --monochrome-output --raw-output 'try .container_os[]')") -eq 0 ]; then
+    if [ "${OPTS['os']:-}" ] && [ "$(grep -cEs "${OPTS['os']}" <<< "$(lib.yamlToJson "${OPTS['base']}/build.yml" | jq --compact-output --monochrome-output --raw-output 'try .container_os[]')")" -eq 0 ]; then
         trap.die 'Invalid operating system specified on command line'
     fi
 
@@ -490,6 +497,7 @@ function build.initialize()
     # defaults for command-line options into above variable
     OPTS['logfile']="logs/build.$(date +"%Y%m%d%H%M%S").log"
     OPTS['conlog']=0
+    OPTS['build']=0
     OPTS['nokafka_logging']=1
     [ "${OPTS['kafka_bootstrap_servers']:-}" ] && KAFKA_BOOTSTRAP_SERVERS="${OPTS['kafka_bootstrap_servers']}"
     [ "${OPTS['kafka_producer']:-}" ] && KAFKA_PRODUCER="${OPTS['kafka_producer']}"
@@ -668,6 +676,7 @@ function build.module()
     local baseImage="$(docker.baseImage "$taggedImage")"
     taggedImage="${baseImage}:${BASE_TAG}"
 
+
     echo
     echo -n 'building '
     echo -en '\e[94m'
@@ -806,17 +815,22 @@ function build.updateContainer()
 
     # rebuild container because no container exists with the correct fingerprint
     build.logger "building $actualImage"
+
+    # update the '.env' files to allow manual build
     build.createEnvFile "$compose_yaml"
-    docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
 
-    build.changeImage "$taggedImage" "$actualImage"
-    [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$taggedImage")" ] && build.run docker tag "$actualImage" "$taggedImage"
+    if [ "${OPTS['build']}" = 0 ]; then
+        docker-compose -f "$compose_yaml" build 2>&1 || trap.die "Build failure"
 
-    if build.canPush "$revision"; then
-        build.logger "pushing ${taggedImage} to registry"
-        docker.pushRetained 0 "$taggedImage"
+        build.changeImage "$taggedImage" "$actualImage"
+        [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$taggedImage")" ] && build.run docker tag "$actualImage" "$taggedImage"
+
+        if build.canPush "$revision"; then
+            build.logger "pushing ${taggedImage} to registry"
+            docker.pushRetained 0 "$taggedImage"
+        fi
+        build.run docker rmi "$actualImage"
     fi
-    build.run docker rmi "$actualImage"
     return 0
 }
 
