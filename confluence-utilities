@@ -34,7 +34,7 @@ declare -i status=0
     fi
 
     # regular output
-    "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]}" && status=$? || status=$?
+    "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]:-}" && status=$? || status=$?
 
 } 2>&1 | tee "$LOGFILE"
 

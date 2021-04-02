@@ -166,13 +166,23 @@ function deploy.docker_compose()
     local -i status
     # execute in subshell so as to isolate 'CONTAINER_TAG' variable used in docker-compose.yml
     (
-        [[ -z "${CFG_USER:-}" && "${OPTS['cfgUser']:-}" ]] && export CFG_USER="${OPTS['cfgUser']}"
-        [[ -z "${CFG_NAME:-}" && "${OPTS['cfgName']:-}" ]] && export CFG_NAME="${OPTS['cfgName']}"
-        [[ -z "${CFG_EMAIL:-}" && "${OPTS['cfgEmail']:-}" ]] && export CFG_EMAIL="${OPTS['cfgEmail']}"
-        [[ -z "${CONFIG_DIR:-}" && "${OPTS['cfgEmail']:-}" ]] && export CONFIG_DIR="${OPTS['cfgDir']}"
-        [[ -z "${CONTAINER_OS:-}" && "${OPTS['containerOs']:-}" ]] && export CONTAINER_OS="${OPTS['containerOs']}"
-        [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && export CONTAINER_TAG="${OPTS['container_tag']}"
-        [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && export WORKSPACE_DIR="${OPTS['workspaceDir']}"
+        [[ -z "${CFG_USER:-}" && "${OPTS['cfgUser']:-}" ]] && CFG_USER="${OPTS['cfgUser']}"
+        export CFG_USER
+        [[ -z "${CFG_NAME:-}" && "${OPTS['cfgName']:-}" ]] && CFG_NAME="${OPTS['cfgName']}"
+        export CFG_NAME
+        [[ -z "${CFG_EMAIL:-}" && "${OPTS['cfgEmail']:-}" ]] && CFG_EMAIL="${OPTS['cfgEmail']}"
+        export CFG_EMAIL
+        [[ -z "${CONFIG_DIR:-}" && "${OPTS['cfgEmail']:-}" ]] && CONFIG_DIR="${OPTS['cfgDir']}"
+        export CONFIG_DIR
+        [[ -z "${CONTAINER_OS:-}" && "${OPTS['containerOs']:-}" ]] && CONTAINER_OS="${OPTS['containerOs']}"
+        export CONTAINER_OS
+        [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
+        export CONTAINER_TAG
+        [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
+        export SECRETS_DIR
+        [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
+        export WORKSPACE_DIR
+        export WORKSPACE_YAML
 
         docker-compose --file "${OPTS['workspaceYaml']}" "$@"
     ) && status=$? || status=$?
@@ -344,12 +354,14 @@ function deploy.initGlobals()
     local deploy_json="$(lib.yamlToJson "${OPTS['deployYaml']}")"
 
     local default_args=$(jq --compact-output --monochrome-output --raw-output 'try .default_args|to_entries' <<< "$deploy_json" ||:)
-    local -i idx
-    for (( idx=0; idx<$(jq 'length' <<< "$default_args"); idx++ )); do
-        local key=$(jq -r ".[$idx].key" <<< "$default_args")
-        local val=$(jq -r ".[$idx].value" <<< "$default_args")
-        [ "${OPTS[$key]:-}" ]  || OPTS[$key]="$val"
-    done
+    if [ "$default_args" ]; then
+        local -i idx
+        for (( idx=0; idx < $(jq 'length' <<< "$default_args"); idx++ )); do
+            local key=$(jq -r ".[$idx].key" <<< "$default_args")
+            local val=$(jq -r ".[$idx].value" <<< "$default_args")
+            [ "${OPTS[$key]:-}" ]  || OPTS[$key]="$val"
+        done
+    fi
 
 
     # verify our basic setup is good
@@ -454,6 +466,8 @@ function deploy.initialize()
 # setup workspace if it does not exist
 function deploy.initializeWorkspace()
 {
+  # run in subshell to isolate exports
+  (
     local json="$(lib.yamlToJson "${OPTS['workspaceYaml']}")"
     [ $? -ne 0 ] && trap.die "Failed to parse ${OPTS['workspaceYaml']}"
     local -ri num_secrets=$(jq --compact-output --monochrome-output '.services[]|select(has("secrets"))|.secrets[]' <<< "$json" | wc -l)
@@ -474,18 +488,43 @@ function deploy.initializeWorkspace()
 
 
     # now run our service tasks
-    export CONFIG_DIR="${OPTS['cfgDir']}"
-    export SECRETS_DIR="${OPTS['secretsDir']}"
-    export WORKSPACE_DIR="${OPTS['workspaceDir']}"
-    export WORKSPACE_YAML="${OPTS['workspaceYaml']}"
+    [[ -z "${CFG_USER:-}" && "${OPTS['cfgUser']:-}" ]] && CFG_USER="${OPTS['cfgUser']}"
+    export CFG_USER
+    [[ -z "${CFG_NAME:-}" && "${OPTS['cfgName']:-}" ]] && CFG_NAME="${OPTS['cfgName']}"
+    export CFG_NAME
+    [[ -z "${CFG_EMAIL:-}" && "${OPTS['cfgEmail']:-}" ]] && CFG_EMAIL="${OPTS['cfgEmail']}"
+    export CFG_EMAIL
+    [[ -z "${CONFIG_DIR:-}" && "${OPTS['cfgEmail']:-}" ]] && CONFIG_DIR="${OPTS['cfgDir']}"
+    export CONFIG_DIR
+    [[ -z "${CONTAINER_OS:-}" && "${OPTS['containerOs']:-}" ]] && CONTAINER_OS="${OPTS['containerOs']}"
+    export CONTAINER_OS
+    [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
+    export CONTAINER_TAG
+    [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
+    export SECRETS_DIR
+    [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
+    export WORKSPACE_DIR
+    export WORKSPACE_YAML
+
+
+    local -i stat
+    local -i status=0
     for task in $(printf '%s\n' "${!service_tasks[@]}" | sort); do
         chmod a+rx "${service_tasks[$task]}"
-        "${service_tasks[$task]}" ||:
+        "${service_tasks[$task]}" && stat=$? || stat=$?
+        [ "$stat" ] || status=1
     done
-
 
     # update secret references (cannot apply these with other docker-compose.yml updates)
     [ "$num_secrets" -eq 0 ] || deploy.updateSecretRefs "${OPTS['cfgYaml']}"
+
+    # run any startup
+    if [ -e "${CONFIG_DIR}/deploy.setup" ]; then
+        "${CONFIG_DIR}/deploy.setup" && stat=$? || stat=$?
+        [ "$stat" ] || status=1
+    fi
+    [ "$status" ] || trap.die "initialization errors detected"
+  )
 }
 
 #----------------------------------------------------------------------------------------------
@@ -501,7 +540,7 @@ function deploy.isValidService()
 {
     local -r service=${1:?}
     
-    local result="$(lib.yamlToJson "$WORKSPACE_YAML" | jq --compact-output --monochrome-output --raw-output 'try .services|has("'"$service"'")' )"
+    local result="$(lib.yamlToJson "${WORKSPACE_DIR}/docker-compose.yml" | jq --compact-output --monochrome-output --raw-output 'try .services|has("'"$service"'")' )"
 
     [ "${result:-}" != 'true' ] && return 1
     return 0
@@ -516,7 +555,7 @@ function deploy.passwordSecret()
     local -r pwdVar=${2:?}
 
     local secret jqQuery
-    local -r json="$(lib.yamlToJson "$WORKSPACE_YAML")"
+    local -r json="$(lib.yamlToJson "${WORKSPACE_DIR}/docker-compose.yml")"
     local password="$(jq --compact-output --monochrome-output --raw-output '.services.'${service}'.environment.'${pwdVar} <<< "$json" )"
     if [ "$password" = 'null' ];then
         password="$(jq --compact-output --monochrome-output --raw-output '.services.'${service}'.environment.'${pwdVar}'_FILE' <<< "$json" )"
@@ -537,21 +576,21 @@ function deploy.populateSecrets()
         # OPTS['secretsDir'] already exists. no need to populate
         :
 
-    elif [ -z "${OPTS['cfgUser']_SECRETS:-}" ]; then
+    elif [ -z "${CFG_USER_SECRETS:-}" ]; then
         [ "${OPEN_SECRETS_REPO:-}" ] || trap.die  "no definition provided for 'secrets'"
         term.log 'populating '"${OPTS['secretsDir']}"' with user defined secrets\n'
         mkdir -p "$(dirname "${OPTS['secretsDir']}")"
         git.clone "$OPEN_SECRETS_REPO" "${OPTS['secretsDir']}"
 
-    elif [ -d "${OPTS['cfgUser']}_SECRETS" ] && [ "$(readlink -f "${OPTS['cfgUser']}_SECRETS")" != "$(readlink -f "${OPTS['secretsDir']}")" ]; then
+    elif [ -d "$CFG_USER_SECRETS" ] && [ "$(readlink -f "$CFG_USER_SECRETS")" != "$(readlink -f "${OPTS['secretsDir']}")" ]; then
         term.log 'populating '"${OPTS['secretsDir']}"' from local secrets dir\n'
         mkdir -p "${OPTS['secretsDir']}"
-        cp -r "${OPTS['cfgUser']}_SECRETS"/* "${OPTS['secretsDir']}"/
+        cp -r "$CFG_USER_SECRETS"/* "${OPTS['secretsDir']}"/
 
-    elif git.lsRemote "${OPTS['cfgUser']}_SECRETS" &> /dev/null ; then
+    elif git.lsRemote "$CFG_USER_SECRETS" &> /dev/null ; then
         term.log 'populating '"${OPTS['secretsDir']}"' from git secrets\n'
         mkdir -p "$(dirname "${OPTS['secretsDir']}")"
-        git.clone "${OPTS['cfgUser']}_SECRETS" "${OPTS['secretsDir']}" --quiet
+        git.clone "$CFG_USER_SECRETS" "${OPTS['secretsDir']}" --quiet
         if [ "$(grep -cs 'git-crypt' "${OPTS['secretsDir']}/.gitattributes")" -gt 0 ]; then
             [ -e "${CRYPT_FILE:-}" ] || trap.die "secrets are encoded, but CRYPT_FILE: '${CRYPT_FILE:-}' does not exist"
             (cd "${OPTS['secretsDir']}"; git.cryptUnlock )
@@ -568,7 +607,6 @@ function deploy.pushImages()
     local -r dc_yaml=${1:?}
 
     local -a images=()
-
     local -r json=$(lib.yamlToJson "$dc_yaml")
 
     # extract images from docker-compose
@@ -631,6 +669,7 @@ function deploy.restart()
 
     deploy.initializeWorkspace
     deploy.removeCBFlogs
+
 
     # restart our environment
     deploy.restartContainers "$latest" || exit 1

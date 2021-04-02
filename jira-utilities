@@ -35,7 +35,7 @@ declare -i status=0
     [ "${OPTS['key']:-}" ] && export _JIRA_PROJECT="${OPTS['key']}"
 
     # regular output
-    "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]}" && status=$? || status=$?
+    "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]:-}" && status=$? || status=$?
 
 } 2>&1 | tee "$LOGFILE"
 

@@ -38,7 +38,7 @@ declare -i status=0
     deploy.fixWorkspaceYaml
 
     # regular output
-    "${OPTS['cmd']}" "${ARGS[@]}" && status=$? || status=$? 
+    "${OPTS['cmd']}" "${ARGS[@]:-}" && status=$? || status=$?
 
 } 2>&1 | tee "$LOGFILE"
 
