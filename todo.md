@@ -5,9 +5,23 @@ improve
   deploy : 
     - recognize 'secrets'
     - recognize 'container_os' as none, or missing
+    - setup '.env' file prior to calling '.setup' scripts
     - split app.setup: 
     	move init function into deploy and call app.init
     	move common functions into deploy and call app.common
+
+    - NO-BASH-SUBSTITUTION
+        bobb@s6 ~/elk-deploy (master)
+	$ ./deploy
+	Fetching origin
+	HEAD is now at 0433161 update Kafka-eagle to v2.0.3
+	$deploy.restart
+	CONTAINER_TAG: ${ELK_VERSION}
+
+  do not load all bashlibs
+    - allow specific bashlibs to be specified
+    - dependant bashlibs should only load what they need
+    - build list of bashlibs that have been loaded so there is no reloading
 
 
 implement ability to create/update github webhook
@@ -33,6 +47,8 @@ docker-utilities
         - configure to use redis
              https://github.com/docker-library/redis/blob/e95c0cf4ffd9a52aa48d05b93fe3b42069c05032/5.0-rc/32bit/Dockerfile
 
+docker-search
+    include 'docker volumes'
 
 deploy
     allow version overrides for any service
@@ -61,6 +77,7 @@ builds
             - deploy should update 'latest' tag
     Separate build, package and deploy/run actions
         Fix up docker dependency script
+
 
 Errors
 
@@ -131,8 +148,15 @@ Errors
 Done
 =============================================================
 ```
+04/04/2021
+  docker-utilities 
+    - PARAMETER TYPE:
+        $ dut gettimage grafana/grafana:7.5.2
+	***ERROR at /home/cyc/.local/bin/utilities/bashlib/appenv.bashlib:51. 'jq -ser '.[]|select(.name|ascii_downcase == "'"${1,,}"'")?|to_entries[]|@sh "OPTS[\(.key)]=\(.value)"' "$optsFile"' exited with status 4
+
+
 01/18/2020
-  deploy : 
+  deploy 
     - recognize 'thirdparty_versions'
     - reduce 'skip_wait' - auto include any which are not CBF (chack using docker labels)
 
