@@ -10,14 +10,6 @@ improve
     	move init function into deploy and call app.init
     	move common functions into deploy and call app.common
 
-    - NO-BASH-SUBSTITUTION
-        bobb@s6 ~/elk-deploy (master)
-	$ ./deploy
-	Fetching origin
-	HEAD is now at 0433161 update Kafka-eagle to v2.0.3
-	$deploy.restart
-	CONTAINER_TAG: ${ELK_VERSION}
-
   do not load all bashlibs
     - allow specific bashlibs to be specified
     - dependant bashlibs should only load what they need
@@ -149,6 +141,16 @@ Done
 =============================================================
 ```
 04/04/2021
+  deploy 
+    - NO-BASH-SUBSTITUTION
+        bobb@s6 ~/elk-deploy (master)
+	$ ./deploy
+	Fetching origin
+	HEAD is now at 0433161 update Kafka-eagle to v2.0.3
+	$deploy.restart
+	CONTAINER_TAG: ${ELK_VERSION}
+
+
   docker-utilities 
     - PARAMETER TYPE:
         $ dut gettimage grafana/grafana:7.5.2

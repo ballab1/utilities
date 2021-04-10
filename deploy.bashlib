@@ -178,6 +178,8 @@ function deploy.docker_compose()
         export CONTAINER_OS
         [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
         export CONTAINER_TAG
+        [[ -z "${HOST_IP:-}" && "${OPTS['workspaceDir']:-}" ]] && HOST_IP="${OPTS['hostIp']}"
+        export HOST_IP
         [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
         export SECRETS_DIR
         [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
@@ -359,7 +361,7 @@ function deploy.initGlobals()
         for (( idx=0; idx < $(jq 'length' <<< "$default_args"); idx++ )); do
             local key=$(jq -r ".[$idx].key" <<< "$default_args")
             local val=$(jq -r ".[$idx].value" <<< "$default_args")
-            [ "${OPTS[$key]:-}" ]  || OPTS[$key]="$val"
+            [ "${OPTS[$key]:-}" ] || OPTS[$key]="$val"
         done
     fi
 
@@ -389,7 +391,7 @@ function deploy.initGlobals()
     OPTS['cfgUser']="${OPTS['cfgUser']%@*}"
     OPTS['cfgName']="${OPTS['cfgName']:-$(git.userName)}"
     OPTS['cfgEmail']="${OPTS['cfgEmail']:-$(git.userEmail)}"
-    environ.container
+    environ.container    # HOST_IP : HOST_NAME : HOST_FQDN : CFG_USER_SECRETS : CRYPT_FILE
 
     local -A deps=()
     local key val
@@ -450,6 +452,15 @@ function deploy.initGlobals()
     readonly COMPLETION_MSG
 
 
+    # fix up any default arg references
+    if [ "$default_args" ]; then
+        for (( idx=0; idx < $(jq 'length' <<< "$default_args"); idx++ )); do
+            local key=$(jq -r ".[$idx].key" <<< "$default_args")
+            eval local val=$(jq -r ".[$idx].value" <<< "$default_args")
+            grep '\$' <<< "${OPTS[$key]:-}" && [ "${val:-}" != "${OPTS[$key]:-}" ] && OPTS[$key]="$val"
+        done
+    fi
+
     if [ "${OPTS['hasVersions']:-false}" = 'true' ]; then
         WORKSPACE_DIR="${OPTS['workspaceDir']}"
         versions.data "${OPTS['deployYaml']}" "${OPTS['latest']:-}"
@@ -500,6 +511,8 @@ function deploy.initializeWorkspace()
     export CONTAINER_OS
     [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
     export CONTAINER_TAG
+    [[ -z "${HOST_IP:-}" && "${OPTS['workspaceDir']:-}" ]] && HOST_IP="${OPTS['hostIp']}"
+    export HOST_IP
     [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
     export SECRETS_DIR
     [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
@@ -591,9 +604,9 @@ function deploy.populateSecrets()
         term.log 'populating '"${OPTS['secretsDir']}"' from git secrets\n'
         mkdir -p "$(dirname "${OPTS['secretsDir']}")"
         git.clone "$CFG_USER_SECRETS" "${OPTS['secretsDir']}" --quiet
-        if [ "$(grep -cs 'git-crypt' "${OPTS['secretsDir']}/.gitattributes")" -gt 0 ]; then
+        if [ -f "${OPTS['secretsDir']}/.gitattributes" ] && [ "$(grep -cs 'git-crypt' "${OPTS['secretsDir']}/.gitattributes")" -gt 0 ]; then
             [ -e "${CRYPT_FILE:-}" ] || trap.die "secrets are encoded, but CRYPT_FILE: '${CRYPT_FILE:-}' does not exist"
-            (cd "${OPTS['secretsDir']}"; git.cryptUnlock )
+            (cd "${OPTS['secretsDir']}" ||: ; git.cryptUnlock )
         fi
 
     else
