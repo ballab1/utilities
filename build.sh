@@ -28,9 +28,13 @@ build.checkSetup
 # our main script
 declare -i status=0
 {
-    "${OPTS['cmd']}" "${ARGS[@]:-}" && status=$? || status=$?  
 
+    if [ "${#ARGS[*]}" -gt 0 ]; then
+        "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]:-}" && status=$? || status=$?
+    else
+        "${OPTS['cmd']}" ${OPTS['oper']:-} && status=$? || status=$?
+    fi
     [ -d "$logDir" ] && [ $(ls -1A "$logDir" | wc -l) -gt 0 ] || rmdir "$logDir"
-} 2>&1 | tee "$LOGFILE"
+    exit $status 
 
-exit $status
+} 2>&1 | tee "$LOGFILE"

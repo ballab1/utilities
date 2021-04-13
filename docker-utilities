@@ -29,18 +29,21 @@ appenv.initialize "$@"
 # our main script
 declare -i status=0
 {
-        if [ "${OPTS['isrunning']:-}" ]; then
-            "${OPTS['isrunning']}" || trap.die 'Docker is not running'
-        fi
+    if [ "${OPTS['isrunning']:-}" ]; then
+        "${OPTS['isrunning']}" || trap.die 'Docker is not running'
+    fi
 
-        if [ "${OPTS['user']:-}" ]; then
-            export _REGISTRY_USER="${OPTS['user']}"
-            export _REGISTRY_CREDENTIALS=$(credentials.get registry)
-        fi
+    if [ "${OPTS['user']:-}" ]; then
+        export _REGISTRY_USER="${OPTS['user']}"
+        export _REGISTRY_CREDENTIALS=$(credentials.get registry)
+    fi
  
-        # regular output
+    # regular output
+    if [ "${#ARGS[*]}" -gt 0 ]; then
         "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]:-}" && status=$? || status=$?
+    else
+        "${OPTS['cmd']}" ${OPTS['oper']:-} && status=$? || status=$?
+    fi
+    exit $status 
 
 } 2>&1 | tee "$LOGFILE"
-
-exit $status

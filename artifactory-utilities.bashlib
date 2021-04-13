@@ -77,8 +77,7 @@ function artifactory-utilities.performDelete
 function artifactory-utilities.saveArtifact
 {
     if [ $# -ne 0 ] || [ -z "${OPTS['file']}" ] || [ -z "${OPTS['repo']}" ]; then
-        term.elog '\nERROR: invalid command options\n' 'error'
-        exit 1
+        appenv.cmdError
     fi
 
     [ -e "${OPTS['file']}" ] || trap.die "Specified file: '${OPTS['file']}' does not exist"
