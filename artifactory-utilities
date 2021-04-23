@@ -11,6 +11,7 @@ PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 PROGRAM_NAME="$(basename "${BASH_SOURCE[0]}")"
 LOGFILE="$(pwd)/${PROGRAM_NAME}.log"
 
+
 declare -r LIB_NAME='artifactory-utilities'
 declare -A OPTS=()
 declare -a ARGS=()
