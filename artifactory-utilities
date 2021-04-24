@@ -8,13 +8,14 @@
 
 # declarations of MUST HAVE globals
 PROGRAM_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-PROGRAM_NAME="$(basename "${BASH_SOURCE[0]}")"
+PROGRAM_NAME="$(basename "${BASH_SOURCE[0]}" | sed 's|.sh$||')"
 LOGFILE="$(pwd)/${PROGRAM_NAME}.log"
 
 
-declare -r LIB_NAME='artifactory-utilities'
+declare -r LIB_NAME="$PROGRAM_NAME"
 declare -A OPTS=()
 declare -a ARGS=()
+
 
 # load our libraries
 declare -r loader="${PROGRAM_DIR}/bashlib/appenv.bashlib"
@@ -24,25 +25,24 @@ if [ ! -e "$loader" ]; then
 fi
 source "$loader"
 appenv.initialize "$@"
+appenv.capture "$LOGFILE"  # capture stdin+stdout to logfile
+
 
 # our main script
+if [ "${OPTS['user']:-}" ]; then
+    export _ARTIFACTORY_USER="${OPTS['user']}"
+    export _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
+    if [ "${OPTS['delete_mode']:-}" = registry ]; then
+        export _REGISTRY_USER="${OPTS['user']}"
+        export _REGISTRY_CREDENTIALS=$(credentials.get registry)
+    fi
+fi
+
+# regular output
 declare -i status=0
-{
-    if [ "${OPTS['user']:-}" ]; then
-        export _ARTIFACTORY_USER="${OPTS['user']}"
-        export _ARTIFACTORY_CREDENTIALS=$(credentials.get artifactory)
-        if [ "${OPTS['delete_mode']:-}" = registry ]; then
-            export _REGISTRY_USER="${OPTS['user']}"
-            export _REGISTRY_CREDENTIALS=$(credentials.get registry)
-        fi
-    fi
-
-    # regular output
-    if [ "${#ARGS[*]}" -gt 0 ]; then
-        "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]:-}" && status=$? || status=$?
-    else
-        "${OPTS['cmd']}" ${OPTS['oper']:-} && status=$? || status=$?
-    fi
-    exit $status 
-
-} 2>&1 | tee "$LOGFILE"
+if [ "${#ARGS[*]}" -gt 0 ]; then
+    "${OPTS['cmd']}" ${OPTS['oper']:-} "${ARGS[@]:-}" && status=$? || status=$?
+else
+    "${OPTS['cmd']}" ${OPTS['oper']:-} && status=$? || status=$?
+fi
+exit $status 
