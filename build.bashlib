@@ -121,6 +121,7 @@ function build.baseTag()
 
     local branch=$(git.branch)
     echo "${branch//\//-}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -170,6 +171,7 @@ function build.changeImage()
 
     [ -z "$(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=$actualImage")" ] || \
         build.run docker tag "$actualImage" "$taggedImage"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -241,6 +243,7 @@ function build.checkSetup()
     if [ -z "$(cd "${OPTS['base']:-}"; git submodule)" ];then
         trap.die 'Invalid directory.'
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -339,10 +342,11 @@ function build.containersForOS()
 # parse all BASH tokens/variables from a file
 function build.getTokens()
 {
-  local file="${1:?}"
+    local file="${1:?}"
 
-  ########    | *removeUnwantedLines*      | *removeTrailingSpaces, encode_$$,       separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*,      restore_$$    | sort -u -t '='
-  cat "$file" | grep -vE '^((\s*)|(#.*))$' | sed -E -e 's|\s+$||'   -e 's|\$\$|\v|g' -e 's|\$|\n$|g' | grep -vE '^((\s*)|(#.*))$' | grep '\$'        | sed -E -e 's|^\$\{?||' -e 's|"||' -e 's|\}.*$||' -e 's|:-|=|' -e 's|:|=|' -e 's|^([^=]+)=?$|\1=?|' -e 's|\v|$$|g' | sort -u -t '='
+    ########    | *removeUnwantedLines*      | *removeTrailingSpaces, encode_$$,       separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*,      restore_$$    | sort -u -t '='
+    cat "$file" | grep -vE '^((\s*)|(#.*))$' | sed -E -e 's|\s+$||'   -e 's|\$\$|\v|g' -e 's|\$|\n$|g' | grep -vE '^((\s*)|(#.*))$' | grep '\$'        | sed -E -e 's|^\$\{?||' -e 's|"||' -e 's|\}.*$||' -e 's|:-|=|' -e 's|:|=|' -e 's|^([^=]+)=?$|\1=?|' -e 's|\v|$$|g' | sort -u -t '='
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -364,6 +368,7 @@ function build.createEnvFile()
     } > "$tmp_file"
 
     lib.updateFile "$tmp_file" "$(dirname "$dc_yaml")/.env"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -431,6 +436,7 @@ function build.dependencyInfo()
         # use parent's cbf.version
         docker inspect "$base" | jq --compact-output --monochrome-output --raw-output '.[].Config.Labels."version.cbf"?'
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -442,6 +448,7 @@ function build.dirChecksum()
     while read -r file; do
         sha256sum "$file"
     done < <(find "$dir" -type f -name '*' 2>/dev/null ||:)
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -454,6 +461,7 @@ function build.dockerCompose()
         local -r service="$(jq --compact-output --monochrome-output --raw-output 'keys[0]?' <<< "$jsonConfig")"
         [ -z "${service:-}" ] || jq --compact-output --monochrome-output $(eval echo "'.\"$service\"?'") <<< "$jsonConfig"
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -481,6 +489,7 @@ function build.getImageParent()
 
     [ -z "${base:-}" ] && trap.die 'Image Parent is undefined'
     echo "$base"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -541,6 +550,7 @@ function build.logger()
         echo "$msg" >> "$PROGRESS_LOG"
     fi
     [ -t 1 ] || echo "    $msg"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -556,6 +566,7 @@ function build.logInfo()
     echo "    revision:          ${CONTAINER_ORIGIN:-}"
     echo "    parent:            ${CONTAINER_PARENT:-}"
     echo "    BASE_TAG:          ${BASE_TAG:-}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -780,6 +791,7 @@ function build.run()
 {
     [ "${OPTS['quiet']:-0}" -eq 0 ] && term.elog "$(printf '%s ' "$@")"'\n' 'grey'
     eval $@ > /dev/null
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------

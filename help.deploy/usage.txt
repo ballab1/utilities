@@ -1,16 +1,19 @@
 
 Usage:
-    $PROGRAM_NAME [ help | clean | down | init | up ]
+    $PROGRAM_NAME [ help | clean | down | init | up | save | restore ]
               [ --dev ]
               [ --latest ]
+              [ --archive <file> ]
               [ --tag <image_tag> ]
 
     Common options:
-             help              Display a basic set of usage instructions
-             clean             clean environment before build (default)
-             down              stop services defined by 'docker-compose.yml'
-             init              only initialize the environment
-             up                <default command> deploy+detached using docker-compose.yml
+             help                           Display a basic set of usage instructions
+             clean                          clean environment before build (default)
+             down                           stop services defined by 'docker-compose.yml'
+             init                           only initialize the environment
+             up                             <default command> deploy+detached using docker-compose.yml
+             save [ --archive <file> ]      <default command> deploy+detached using docker-compose.yml
+             restore [ --archive <file> ]   <default command> deploy+detached using docker-compose.yml
 
            --dev               do not pull new images from registry (use images on local system)
         -l --latest            update to latest versions of images rather than using those defined in docker-compose.yml

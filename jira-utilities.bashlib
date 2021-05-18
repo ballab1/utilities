@@ -6,6 +6,7 @@
 function jira-utilities.allfields()
 {
     jira.fields
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -70,6 +71,7 @@ function jira-utilities.checkSupportMaterialsFolders()
         echo "missing:       $missing + $(( missingtop * 1000 ))"
         echo "missingtop:    $missingtop"
     } >&2
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -104,6 +106,7 @@ function jira-utilities.elapsedTime()
     if [ $elapsed -gt 2 ];then
         printf '%02d:%02d:%02d' $((elapsed / 3600)) $((elapsed % 3600 / 60)) $((elapsed % 60))
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -117,18 +120,21 @@ function jira-utilities.issue()
 {
     local issue="${1:?}"
     jira.issue "$issue"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.issueTypeScheme()
 {
     jira.issueTypeScheme
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.listProjects()
 {
     jira.listProjects "$@"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -138,6 +144,7 @@ function jira-utilities.projectInfo()
     local -r project="${1:-$default}"
     local -r issueType=${2:-Bug};
     jira.projectInfo "$project" "$issueType"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -147,6 +154,7 @@ function jira-utilities.projectTypes()
     local -r project="${1:-$default}"
 
     jira.projectTypes "$project"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -155,6 +163,7 @@ function jira-utilities.remoteLinks()
     local default="${OPTS['key']:-MDT}"
     local project="${1:-$default}"
     jira.remoteLinks "$project"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------

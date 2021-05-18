@@ -183,6 +183,7 @@ function docker-utilities.addImageToList()
     else
         IMAGES_TO_DELETE[$repo]+=" ${tags[*]}"
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -286,6 +287,7 @@ function docker-utilities.clean()
 {
     docker.clean
     docker-utilities.show 'images' "$@"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -298,6 +300,7 @@ function docker-utilities.deleteImage()
 
     # remove image from repo
     registry.deleteImage "$repo" "$digest"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -314,6 +317,7 @@ function docker-utilities.deleteLocal()
         appenv.run docker rmi "${images[@]}"
         docker-utilities.show images 
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -542,6 +546,7 @@ function docker-utilities.digests()
         REPO_DIGESTS[$repo]="$digests"
     fi
     read -r "$var" <<< "${REPO_DIGESTS[$repo]:-}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -607,6 +612,7 @@ function docker-utilities.manifests()
     echo '"manifest":' >&2
 
     registry.manifest "$(docker.repo "$image")" "$(docker.tag "$image")" | jq --compact-output --monochrome-output '.'
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -692,6 +698,7 @@ function docker-utilities.removeRegistryReference()
     for id in "$@"; do
         [ "${id:-}" ] && echo ${id#$(registry.SERVER)}
     done
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -719,6 +726,7 @@ function docker-utilities.renameImage()
     docker.pushRetained 0 "$(registry.SERVER)${dstName}:$dstTag"
     [ "${exists:-}" ] || appenv.run docker rmi "$(registry.SERVER)$src"
     docker-utilities.deleteTag "$srcName" "$srcTag"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -854,6 +862,7 @@ function docker-utilities.reportTagSummary()
     else
         term.elog '\nNo content specified\n' 'warn'
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -895,6 +904,7 @@ function docker-utilities.retagImages()
             appenv.run docker rmi "$image" || :
         done
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -913,6 +923,7 @@ function docker-utilities.retagLatest()
 
     docker.pushRetained 1 "${images[@]}"
     appenv.run docker rmi "${images[@]}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -1011,6 +1022,7 @@ function docker-utilities.show_digests()
     {
         registry.digests "$(docker.repo "$image")"
     } | jq --compact-output --monochrome-output '.'
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------

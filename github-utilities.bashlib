@@ -22,6 +22,7 @@ function github-utilities.elapsedTime()
     if [ $elapsed -gt 2 ];then
         printf '%02d:%02d:%02d' $((elapsed / 3600)) $((elapsed % 3600 / 60)) $((elapsed % 60))
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -43,6 +44,7 @@ function github-utilities.orgInfo_Devops()
         (github.orgTeams "$org" > "${loc}/${org}/teams.json") && status=$? || status=$?
     done < "${PROGRAM_DIR}/devops_orgs.git"
     echo
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -73,6 +75,7 @@ function github-utilities.orgInfo_MRES()
 
     github-utilities.process_files "$loc"
     echo
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -82,6 +85,7 @@ function github-utilities.orgrepocollaborators()
     local -r repo="${2:?}"
 
     github.repoCollaborators "$org" "$repo"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -91,6 +95,7 @@ function github-utilities.orgrepoinfo()
     local -r repo="${2:?}"
 
     github.orgRepoInfo "$org" "$repo"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -99,6 +104,7 @@ function github-utilities.orgrepos()
     local -r org="${1:?}"
 
     github.orgRepos "$org"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -107,6 +113,7 @@ function github-utilities.orgteams()
     local -r org="${1:?}"
 
     github.orgTeams "$org"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -147,6 +154,7 @@ function github-utilities.process_files()
             done
         done
     done < <(find "$pwd" -mindepth 1 -maxdepth 1 -type d)
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -155,6 +163,7 @@ function github-utilities.teammembers()
     local -ri teamId="${1:?}"
 
     github.teamMembers "$teamId"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -163,6 +172,7 @@ function github-utilities.teamrepos()
     local -ri teamId="${1:?}"
 
     github.teamRepos "$teamId"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -171,6 +181,7 @@ function github-utilities.userinfo()
     local -r user="${1:?}"
 
     github.userInfo "$user"
+    return 0
 }
 
 #---------------------------------------------------------------------------------------------- 

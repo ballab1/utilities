@@ -3,5 +3,8 @@
 declare yamlfile="${1:?}"
 shift
 
-python -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' < "$yamlfile" | jq $@
+declare python="$(which python)"
+[ "$python" ] || python="$(which python3)"
+
+"$python" -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' < "$yamlfile" | jq $@
  

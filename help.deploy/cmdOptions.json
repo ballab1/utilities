@@ -30,3 +30,22 @@
   "argsCondition": "$# -ge 0",
   "shift": 1
 }
+{
+  "name": "save",
+  "cmd": "deploy.runInShell",
+  "oper": "deploy.saveImages",
+  "message": "save currently used images as a tgz file for later restoration",
+  "argsCondition": "$# -ge 0",
+  "longOpts": "archives:",
+  "shortOpts": "a:",
+  "shift": 1
+}
+{
+  "name": "restore",
+  "cmd": "deploy.restoreImages",
+  "message": "restore images from a previously saved archive file",
+  "argsCondition": "$# -ge 0",
+  "longOpts": "archives:",
+  "shortOpts": "a:",
+  "shift": 1
+}

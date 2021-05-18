@@ -19,12 +19,18 @@ function deploy.clean()
     # remove workspace folder
     term.log "\$rm -rf ${OPTS['workspaceDir']}"'\n' 'grey'
     sudo rm -rf "${OPTS['workspaceDir']}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
 function deploy.cmdLineArgs()
 {
     case "${1,,}" in
+        -a|--a|--archive)
+            OPTS['archive']="$2"
+            OPTS['shift']=2
+            return 0;;
+
         -b|--b|--base)
             OPTS['base']="$2"
             OPTS['shift']=2
@@ -56,6 +62,7 @@ function deploy.configSettingsHelp()
 
     # show context sensitive help
     cat "$contextHelp" >&2
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -70,6 +77,7 @@ function deploy.containerTag()
         master|integration)        echo "${container_tag:-$branch}";;
         *)                         echo 'latest';;
     esac
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -82,7 +90,7 @@ function deploy.containerVersion()
     local fingerprint newline prefix production promoted
 
     # capture prefix up to registry
-    prefix="$(sed -Ee 's|^(\s+.*'"$(registry.SERVER)"'}).*$|\1|' <<< "$line")"
+    prefix="$(sed -Ee 's|^(\s+.*'"${OPTS['registry']}"'}).*$|\1|' <<< "$line")"
 
     newline="${line:${#prefix}}"   # strip prefix from line
     promoted="$newline"
@@ -164,31 +172,7 @@ function deploy.createVolumeFolders()
 function deploy.docker_compose()
 {
     local -i status
-    # execute in subshell so as to isolate 'CONTAINER_TAG' variable used in docker-compose.yml
-    (
-        [[ -z "${CFG_USER:-}" && "${OPTS['cfgUser']:-}" ]] && CFG_USER="${OPTS['cfgUser']}"
-        export CFG_USER
-        [[ -z "${CFG_NAME:-}" && "${OPTS['cfgName']:-}" ]] && CFG_NAME="${OPTS['cfgName']}"
-        export CFG_NAME
-        [[ -z "${CFG_EMAIL:-}" && "${OPTS['cfgEmail']:-}" ]] && CFG_EMAIL="${OPTS['cfgEmail']}"
-        export CFG_EMAIL
-        [[ -z "${CONFIG_DIR:-}" && "${OPTS['cfgEmail']:-}" ]] && CONFIG_DIR="${OPTS['cfgDir']}"
-        export CONFIG_DIR
-        [[ -z "${CONTAINER_OS:-}" && "${OPTS['containerOs']:-}" ]] && CONTAINER_OS="${OPTS['containerOs']}"
-        export CONTAINER_OS
-        [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
-        export CONTAINER_TAG
-        [[ -z "${HOST_IP:-}" && "${OPTS['workspaceDir']:-}" ]] && HOST_IP="${OPTS['hostIp']}"
-        export HOST_IP
-        [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
-        export SECRETS_DIR
-        [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
-        export WORKSPACE_DIR
-        export WORKSPACE_YAML
-
-        docker-compose --file "${OPTS['workspaceYaml']}" "$@"
-    ) && status=$? || status=$?
-
+    deploy.runInShell docker-compose --file "${OPTS['workspaceYaml']}" "$@" && status=$? || status=$?
     return $status
 }
 
@@ -301,22 +285,23 @@ function deploy.fixWorkspaceYaml()
     mkdir -p "${OPTS['workspaceDir']}" ||:
     [ -f "${OPTS['workspaceYaml']}" ] && rm "${OPTS['workspaceYaml']}"
     [ -h "${OPTS['workspaceYaml']}" ] || ln -s "${OPTS['cfgYaml']}" "${OPTS['workspaceYaml']}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
 # parse all BASH tokens/variables from a file
 function deploy.getTokens()
 {
-  local file="${1:?}"
+    local file="${1:?}"
 
-  ########    | *removeUnwantedLines*      | *removeTrailingSpaces, encode_$$,       separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*,      restore_$$    | sort -u -t '='
-  cat "$file" | grep -vE '^((\s*)|(#.*))$' | sed -E -e 's|\s+$||'   -e 's|\$\$|\v|g' -e 's|\$|\n$|g' | grep -vE '^((\s*)|(#.*))$' | grep '\$'        | sed -E -e 's|^\$\{?||' -e 's|"||' -e 's|\}.*$||' -e 's|:-|=|' -e 's|:|=|' -e 's|^([^=]+)=?$|\1=?|' -e 's|\v|$$|g' | sort -u -t '='
+    ########    | *removeUnwantedLines*      | *removeTrailingSpaces, encode_$$,       separateTokens* | *removeUnwantedLines*      | *identifyTokens* | *removeTokenStart,     removeTokenEndings,       setKeyValDelim,          fixUndefinedTokens*,      restore_$$    | sort -u -t '='
+    cat "$file" | grep -vE '^((\s*)|(#.*))$' | sed -E -e 's|\s+$||'   -e 's|\$\$|\v|g' -e 's|\$|\n$|g' | grep -vE '^((\s*)|(#.*))$' | grep '\$'        | sed -E -e 's|^\$\{?||' -e 's|"||' -e 's|\}.*$||' -e 's|:-|=|' -e 's|:|=|' -e 's|^([^=]+)=?$|\1=?|' -e 's|\v|$$|g' | sort -u -t '='
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
 function deploy.initGlobals()
 {
-
     # declare & initialize our GLOBAL variables
 #export OPTS['cfgEmail'] OPTS['cfgName'] OPTS['cfgUser'] OPTS['cfgDir'] OPTS['cfgYaml'] OPTS['containerOs'] DEBUG_TRACE OPTS['deployYaml']
 #export OPTS['hasVersions'] OPTS['hostIp'] OPTS['hostName'] OPTS['logDir'] OPTS['secretsDir'] OPTS['workspaceDir'] OPTS['workspaceYaml'] 
@@ -391,6 +376,7 @@ function deploy.initGlobals()
     OPTS['cfgUser']="${OPTS['cfgUser']%@*}"
     OPTS['cfgName']="${OPTS['cfgName']:-$(git.userName)}"
     OPTS['cfgEmail']="${OPTS['cfgEmail']:-$(git.userEmail)}"
+    OPTS['registry']="$(registry.SERVER)"
     environ.container    # HOST_IP : HOST_NAME : HOST_FQDN : CFG_USER_SECRETS : CRYPT_FILE
 
     local -A deps=()
@@ -465,6 +451,7 @@ function deploy.initGlobals()
         WORKSPACE_DIR="${OPTS['workspaceDir']}"
         versions.data "${OPTS['deployYaml']}" "${OPTS['latest']:-}"
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -477,8 +464,7 @@ function deploy.initialize()
 # setup workspace if it does not exist
 function deploy.initializeWorkspace()
 {
-  # run in subshell to isolate exports
-  (
+    # run in subshell to isolate exports
     local json="$(lib.yamlToJson "${OPTS['workspaceYaml']}")"
     [ $? -ne 0 ] && trap.die "Failed to parse ${OPTS['workspaceYaml']}"
     local -ri num_secrets=$(jq --compact-output --monochrome-output '.services[]|select(has("secrets"))|.secrets[]' <<< "$json" | wc -l)
@@ -497,29 +483,6 @@ function deploy.initializeWorkspace()
         deploy.createVolumeFolders "$json" "$service_name"
     done
 
-
-    # now run our service tasks
-    [[ -z "${CFG_USER:-}" && "${OPTS['cfgUser']:-}" ]] && CFG_USER="${OPTS['cfgUser']}"
-    export CFG_USER
-    [[ -z "${CFG_NAME:-}" && "${OPTS['cfgName']:-}" ]] && CFG_NAME="${OPTS['cfgName']}"
-    export CFG_NAME
-    [[ -z "${CFG_EMAIL:-}" && "${OPTS['cfgEmail']:-}" ]] && CFG_EMAIL="${OPTS['cfgEmail']}"
-    export CFG_EMAIL
-    [[ -z "${CONFIG_DIR:-}" && "${OPTS['cfgEmail']:-}" ]] && CONFIG_DIR="${OPTS['cfgDir']}"
-    export CONFIG_DIR
-    [[ -z "${CONTAINER_OS:-}" && "${OPTS['containerOs']:-}" ]] && CONTAINER_OS="${OPTS['containerOs']}"
-    export CONTAINER_OS
-    [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
-    export CONTAINER_TAG
-    [[ -z "${HOST_IP:-}" && "${OPTS['workspaceDir']:-}" ]] && HOST_IP="${OPTS['hostIp']}"
-    export HOST_IP
-    [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
-    export SECRETS_DIR
-    [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
-    export WORKSPACE_DIR
-    export WORKSPACE_YAML
-
-
     local -i stat
     local -i status=0
     for task in $(printf '%s\n' "${!service_tasks[@]}" | sort); do
@@ -537,7 +500,8 @@ function deploy.initializeWorkspace()
         [ "$stat" ] || status=1
     fi
     [ "$status" ] || trap.die "initialization errors detected"
-  )
+
+    return "$status"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -579,6 +543,7 @@ function deploy.passwordSecret()
         password=$(< "$pwd_file")
     fi
     echo "$password"
+    return 0
 }
 export -f deploy.passwordSecret
 
@@ -612,6 +577,7 @@ function deploy.populateSecrets()
     else
         trap.die  "missing 'secrets' directory in OPTS['workspaceDir']"
     fi
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -630,6 +596,7 @@ function deploy.pushImages()
     done < <(jq --compact-output --monochrome-output --raw-output '.services[].image' <<< "$json")
 
     docker.pushRetained 1 "${images[@]}"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -645,6 +612,7 @@ function deploy.refreshContainers()
     fi
     term.log 'docker-compose --file '"${OPTS['workspaceYaml']}"' pull\n' 'grey'
     deploy.docker_compose pull || return 1
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -654,6 +622,7 @@ function deploy.removeCBFlogs()
         [ -f "${dir}/cbf.log" ] || continue
         sudo rm "${dir}/cbf.log"
     done < <(find "${OPTS['workspaceDir']}" -mindepth 2 -maxdepth 2 -type d -name log)
+    return 0
 }
 
 #------------------------------------------- EXPORTED FUNCTION: deploy.replaceIpAddresses -----
@@ -666,6 +635,7 @@ function deploy.replaceIpAddresses()
         local expr='s|${HOST_IP}|'"${HOST_IP}"'|g'
         sudo sed -i -e "$expr" "$filename"
     fi
+    return 0
 }
 export -f deploy.replaceIpAddresses
 
@@ -680,7 +650,7 @@ function deploy.restart()
 
     cd "${OPTS['workspaceDir']}" ||:
 
-    deploy.initializeWorkspace
+    deploy.runInShell deploy.initializeWorkspace
     deploy.removeCBFlogs
 
 
@@ -744,6 +714,69 @@ function deploy.restartContainers()
 }
 
 #----------------------------------------------------------------------------------------------
+function deploy.restoreImages()
+{
+    if [ "${OPTS['archive']:-}" ]; then
+        term.elog 'unpacking docker images from archive '"${OPTS['archive']}"'\n' 'white'
+        term.log 'docker load --input '"${OPTS['archive']}"'\n' 'grey'
+        docker load --input "${OPTS['archive']}"
+    else
+        term.elog 'no archive file specified\n'
+    fi
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
+function deploy.runInShell()
+{
+    [ $# -eq 0 ] && return 0
+    local -a args=( "$@" )
+
+    local -i status
+    # execute in subshell so as to isolate exported variables
+    (
+        [[ -z "${CFG_USER:-}" && "${OPTS['cfgUser']:-}" ]] && CFG_USER="${OPTS['cfgUser']}"
+        export CFG_USER
+        [[ -z "${CFG_NAME:-}" && "${OPTS['cfgName']:-}" ]] && CFG_NAME="${OPTS['cfgName']}"
+        export CFG_NAME
+        [[ -z "${CFG_EMAIL:-}" && "${OPTS['cfgEmail']:-}" ]] && CFG_EMAIL="${OPTS['cfgEmail']}"
+        export CFG_EMAIL
+        [[ -z "${CONFIG_DIR:-}" && "${OPTS['cfgDir']:-}" ]] && CONFIG_DIR="${OPTS['cfgDir']}"
+        export CONFIG_DIR
+        [[ -z "${CONTAINER_OS:-}" && "${OPTS['containerOs']:-}" ]] && CONTAINER_OS="${OPTS['containerOs']}"
+        export CONTAINER_OS
+        [[ -z "${CONTAINER_TAG:-}" && "${OPTS['container_tag']:-}" ]] && CONTAINER_TAG="${OPTS['container_tag']}"
+        export CONTAINER_TAG
+        [[ -z "${HOST_IP:-}" && "${OPTS['hostIp']:-}" ]] && HOST_IP="${OPTS['hostIp']}"
+        export HOST_IP
+        [[ -z "${SECRETS_DIR:-}" && "${OPTS['secretsDir']:-}" ]] && SECRETS_DIR="${OPTS['secretsDir']}"
+        export SECRETS_DIR
+        [[ -z "${WORKSPACE_DIR:-}" && "${OPTS['workspaceDir']:-}" ]] && WORKSPACE_DIR="${OPTS['workspaceDir']}"
+        export WORKSPACE_DIR
+        export WORKSPACE_YAML
+
+        "${args[@]}"
+
+    ) && status=$? || status=$?
+    return $status
+}
+
+#----------------------------------------------------------------------------------------------
+function deploy.saveImages()
+{
+    local -a images=()
+    while read -r image;do
+        images+=( $(eval echo $image) )
+    done < <(lib.yamlToJson "${OPTS['cfgDir']}/docker-compose.yml" | jq --compact-output --monochrome-output --raw-output '.services[].image')
+
+    local -r filename="${OPTS[archive]:-$(git.describe --tags --always --dirty).tar}"
+    term.log 'docker save --output '"${filename} $(echo ${images[*]})"'\n' 'grey'
+    docker save --output "$filename" "${images[@]}"
+    [ -f "$filename" ] && gzip -fv "$filename"
+    return 0
+}
+
+#----------------------------------------------------------------------------------------------
 function deploy.showInitializationBanner()
 {
     term.log '******************************************************************************\n' 'white'
@@ -752,6 +785,7 @@ function deploy.showInitializationBanner()
     term.log '*                                                                            *\n' 'white'
     term.log '******************************************************************************\n' 'white'
     export INITIALIZE_COMPLETE='true'
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -828,6 +862,7 @@ function deploy.updateDockerCompose()
     [ $? -ne 0 ] && trap.die "Failed to process file: $dst_yaml"
 
     lib.updateFile "$tmp_file" "$src_yaml"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -838,6 +873,7 @@ function deploy.updateSecretRefs()
     sed -r -e 's|file:\s+~/|file: '"$(readlink -f ~)"'/|' "$dc_yaml" > "$tmp_file"
 
     lib.updateFile "$tmp_file" "$dc_yaml"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -846,6 +882,7 @@ function deploy.validateDockerComposeYaml()
     local -r dc_yaml=${1:?}
     local ports=$(jq --compact-output --monochrome-output '.services[].ports[]' <<< "$dc_yaml")
     [ $(echo $ports | sort | wc -l) -eq $(echo $ports | sort -u) ] || return 1
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -885,6 +922,7 @@ function deploy.verifyEnvironmentForFile()
     local tmp_file="${OPTS['workspaceDir']}/.env.tmp"
     printf '%s\n' "${tokens[@]}" > "$tmp_file"
     lib.updateFile "$tmp_file" "$org_file"
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -973,6 +1011,7 @@ function deploy.waitForInitializationComplete()
           } >> "$run_log"
        # fi
     done
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -1085,6 +1124,7 @@ function deploy.waitForInitializationComplete_2()
           } >> "$run_log"
        # fi
     done
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -1092,6 +1132,7 @@ function deploy.workspace()
 {
     local -r base_dir=${1:?}
     echo "${base_dir}/workspace.$(basename "$base_dir")"
+    return 0
 }
 
 #---------------------------------------------------------------------------------------------- 
