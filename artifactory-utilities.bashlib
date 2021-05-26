@@ -41,6 +41,7 @@ function artifactory-utilities.getArtifacts()
     for ref in "$@"; do
         artifactory.GET "$ref" ||: 
     done
+    return 0
 }
 
 #----------------------------------------------------------------------------------------------
@@ -52,8 +53,7 @@ function artifactory-utilities.initialize()
 #--------------------------------------------------------------------
 function artifactory-utilities.listRepos
 {
-    artifactory.GET "$(artifactory.REST_API)/repositories" 
-    return 0
+    return artifactory.GET "$(artifactory.REST_API)/repositories" 
 }
 
 #---------------------------------------------------------------------------------------------- 
@@ -71,8 +71,7 @@ function artifactory-utilities.performDelete
     mapfile -t items < <(artifactory.search "$aqlfile" | jq --compact-output --monochrome-output --raw-output '.results[].path?' ||:)
     [ ${#items[*]} -gt 0 ] || trap.die "no artifacts to delete"
 
-    artifactory-utilities.deleteDockerImages "${items[@]}"
-    return 0
+    return artifactory-utilities.deleteDockerImages "${items[@]}"
 }
 
 #--------------------------------------------------------------------
@@ -92,8 +91,7 @@ function artifactory-utilities.saveArtifact
     local uploadFile="${OPTS['file']:-}"
     [ -z "${uploadFile:-}" ] && return 1
 
-    artifactory.uploadFile "${target}/$(basename "$uploadFile")"  "$uploadFile"
-    return 0
+    return artifactory.uploadFile "${target}/$(basename "$uploadFile")"  "$uploadFile"
 }
 
 #--------------------------------------------------------------------
@@ -109,9 +107,10 @@ function artifactory-utilities.saveCBF
     [ ${DO_PUSH:-0} -eq 0 ] && trap artifactory-utilities.onExit EXIT 
 
     export TMP_DIR="$(mktemp -d)"
-    artifactory.saveCBF "${filename}.tar.gz" "$TMP_DIR"
+    local -i status
+    artifactory.saveCBF "${filename}.tar.gz" "$TMP_DIR" && status=$? || status=$?
     echo
-    return 0
+    return $status
 }
 
 #--------------------------------------------------------------------
@@ -129,8 +128,7 @@ function artifactory-utilities.search()
         echo
     } >&2
 
-    artifactory.search "$aql"
-    return 0
+    return artifactory.search "$aql"
 }
 
 #----------------------------------------------------------------------------------------------

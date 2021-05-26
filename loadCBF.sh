@@ -6,7 +6,7 @@ set -o nounset
 set -o pipefail
 IFS=$'\n\t'
 
-declare -r CBF_URL="https://afeoscyc-mw.cec.lab.emc.com/artifactory/cyclone-devops/cyclone-devops/container_build_framework"
+declare -r CBF_URL="https://github.com/ballab1/container_build_framework/archive"
 export CBF_DIR_TEMP
 export CHAIN_EXIT_HANDLER
 
@@ -19,7 +19,7 @@ function __init.die() {
 function __init.loadCBF() {
     local cbf_dir="${CONTAINER_DIR:-}"
     : ${__cbfVersion:=master}
-    [ -z "${CBF_VERSION:-}" ] || __cbfVersion=$CBF_VERSION
+    [ -z "${CBF_VERSION:-}" ] || __cbfVersion="$CBF_VERSION"
 
     # check if we need to download CBF
     if [ "${cbf_dir:-}" ] && [ -d "$cbf_dir" ]; then

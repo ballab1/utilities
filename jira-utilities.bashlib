@@ -5,8 +5,7 @@
 #----------------------------------------------------------------------------------------------
 function jira-utilities.allfields()
 {
-    jira.fields
-    return 0
+    return jira.fields
 }
 
 #----------------------------------------------------------------------------------------------
@@ -126,15 +125,13 @@ function jira-utilities.issue()
 #----------------------------------------------------------------------------------------------
 function jira-utilities.issueTypeScheme()
 {
-    jira.issueTypeScheme
-    return 0
+    return jira.issueTypeScheme
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.listProjects()
 {
-    jira.listProjects "$@"
-    return 0
+    return jira.listProjects "$@"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -143,8 +140,7 @@ function jira-utilities.projectInfo()
     local default="${OPTS['key']:-MDT}"
     local -r project="${1:-$default}"
     local -r issueType=${2:-Bug};
-    jira.projectInfo "$project" "$issueType"
-    return 0
+    return jira.projectInfo "$project" "$issueType"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -153,8 +149,7 @@ function jira-utilities.projectTypes()
     local default="${OPTS['key']:-MDT}"
     local -r project="${1:-$default}"
 
-    jira.projectTypes "$project"
-    return 0
+    return jira.projectTypes "$project"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -162,15 +157,34 @@ function jira-utilities.remoteLinks()
 {
     local default="${OPTS['key']:-MDT}"
     local project="${1:-$default}"
-    jira.remoteLinks "$project"
-    return 0
+    return jira.remoteLinks "$project"
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.search()
 {
     local jqlFile=${1:?}
-    
+    jql="$(jira-utilities.verifyJqlFile "$jqlFile")"
+
+    {
+        local -i status=0
+        echo
+        echo 'jira.search:'
+        (jq -C '.' <<< "$jql") || status=$?
+        echo
+    } >&2 || trap.die "invalid JSON specified in JQL"
+
+    local -i status=0
+    jira.search "$jql" || status=$?
+    echo >&2
+    return $status
+}
+
+#----------------------------------------------------------------------------------------------
+function jira-utilities.verifyJqlFile()
+{
+    local jqlFile="${1:?}"
+
     # find our jql file using search path
     local path
     for path in '' "$(pwd)/searches/jql/" "$PROGRAM_DIR/searches/jql/"; do
@@ -183,18 +197,13 @@ function jira-utilities.search()
             break
         fi
     done
-
+    [ -e "$jqlFile" ] || trap.die "unable to locate JQL file: '$JqlFile'"
 
     local -i status=0
-    local jql
-    jql=$(< "$jqlFile") || status=$?
+    local jql=$(< "$jqlFile") || status=$?
     [ $status -ne 0 ] && trap.die "unable to read jqlFile: $jqlFile"'\n'
-    echo "jira.search = $jql" >&2
-    (jq --exit-status '.' <<< "$jql" &> /dev/null) || status=$?
-    [ $status -eq 0 ] || trap.die "invalid JSON specified in JQL"
 
-    jira.search "$jql" || status=$?
-    echo >&2
+    echo "$jql"
     return $status
 }
 
