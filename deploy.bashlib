@@ -185,7 +185,7 @@ function deploy.down()
         local -i networkCount=$(docker network ls | grep -cs "$network")
         [ "$networkCount" -gt 0 ] || return 1
     fi
-    
+
     if [ -f "${OPTS['workspaceYaml']}" ]; then
         term.log 'INFO: bringing down containers to allow "workspace" to be refreshed\n' 'lt_magenta'
         term.log '\nINFO: bringing down containers\n' 'white'
@@ -539,6 +539,7 @@ function deploy.passwordSecret()
         secret="$(basename "$password")"
         jqQuery='.secrets."'"${secret}"'".file'
         local pwd_file="$(eval echo "$(jq --compact-output --monochrome-output --raw-output "$jqQuery" <<< "$json" )")"
+        [ "$pwd_file" = 'null' ] && trap.die "Undefined password file in '${WORKSPACE_DIR}/docker-compose.yml'.  Used by startup of service: $service"
         [ -e "$pwd_file" ] || trap.die "Password file: '$pwd_file' not found. Used by startup of service: $service"
         password=$(< "$pwd_file")
     fi
@@ -686,7 +687,7 @@ function deploy.restartContainers()
     # stop any running containers
     term.log '\nINFO: bringing down containers\n' 'white'
     term.log 'docker-compose --file '"${OPTS['workspaceYaml']}"' down\n' 'grey'
-    deploy.docker_compose down ||:
+    deploy.docker_compose down --remove-orphans ||:
 
     set -o verbose
     sudo find -L "${OPTS['logDir']}" -type f ! -name '.*' -delete
