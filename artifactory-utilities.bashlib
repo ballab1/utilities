@@ -7,25 +7,25 @@ function artifactory-utilities.cmdLineArgs()
 {
     case "${1,,}" in
         -f|--f|--file)
-            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['file']=$2
             OPTS['shift']=2
             return 0;;
 
         -m|--m|--mode)
-            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['delete_mode']="$2"
             OPTS['shift']=2
             return 0;;
 
         -o|--o|--outfile)
-            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['log']="$2"
             OPTS['shift']=2
             return 0;;
 
         -r|--r|--repo)
-            [[ $# -eq 0 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['repo']=$2
             OPTS['shift']=2
             return 0;;

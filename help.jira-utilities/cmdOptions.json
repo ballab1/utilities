@@ -1,6 +1,6 @@
 {
   "name": "allfields",
-  "cmd": "jira-utilities.fields",
+  "cmd": "jira-utilities.allfields",
   "message": "display fields from $(jira.SERVER)",
   "longOpts": "mode",
   "shortOpts": "m",

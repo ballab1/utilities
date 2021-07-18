@@ -5,7 +5,7 @@
 #----------------------------------------------------------------------------------------------
 function jira-utilities.allfields()
 {
-    return jira.fields
+    jira.allfields
 }
 
 #----------------------------------------------------------------------------------------------
@@ -78,20 +78,32 @@ function jira-utilities.cmdLineArgs()
 {
     case "${1,,}" in
         -m|--mode)
-            [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['mode']="$2"
             OPTS['shift']=2
             return 0;;
 
         -t|--type)
-            [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['type']="$2"
             OPTS['shift']=2
             return 0;;
 
         -o|--out)
-            [[ $# -le 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['log']="$2"
+            OPTS['shift']=2
+            return 0;;
+
+        -p|--project)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            OPTS['key']="$2"
+            OPTS['shift']=2
+            return 0;;
+
+        -s|--server)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
+            OPTS['server']="$2"
             OPTS['shift']=2
             return 0;;
     esac
@@ -119,19 +131,18 @@ function jira-utilities.issue()
 {
     local issue="${1:?}"
     jira.issue "$issue"
-    return 0
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.issueTypeScheme()
 {
-    return jira.issueTypeScheme
+    jira.issueTypeScheme
 }
 
 #----------------------------------------------------------------------------------------------
 function jira-utilities.listProjects()
 {
-    return jira.listProjects "$@"
+    jira.listProjects "$@"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -140,7 +151,7 @@ function jira-utilities.projectInfo()
     local default="${OPTS['key']:-MDT}"
     local -r project="${1:-$default}"
     local -r issueType=${2:-Bug};
-    return jira.projectInfo "$project" "$issueType"
+    jira.projectInfo "$project" "$issueType"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -149,7 +160,7 @@ function jira-utilities.projectTypes()
     local default="${OPTS['key']:-MDT}"
     local -r project="${1:-$default}"
 
-    return jira.projectTypes "$project"
+    jira.projectTypes "$project"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -157,7 +168,7 @@ function jira-utilities.remoteLinks()
 {
     local default="${OPTS['key']:-MDT}"
     local project="${1:-$default}"
-    return jira.remoteLinks "$project"
+    jira.remoteLinks "$project"
 }
 
 #----------------------------------------------------------------------------------------------

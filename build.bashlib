@@ -179,17 +179,17 @@ function build.cmdLineArgs()
 {
     case "${1,,}" in
         -u|--u|--user)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['user']="$2"
             OPTS['shift']=2;;
 
         --credentials)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['credentials']="$2"
             OPTS['shift']=2;;
 
         -b|--b|--base)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['base']="$2"
             OPTS['shift']=2;;
 
@@ -202,12 +202,12 @@ function build.cmdLineArgs()
             OPTS['shift']=1;;
 
         --logdir)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['logdir']="$2"
             OPTS['shift']=2;;
 
         -l|--l|--logfile)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['logfile']="$2"
             OPTS['shift']=2;;
 
@@ -224,7 +224,7 @@ function build.cmdLineArgs()
            OPTS['shift']=1;;
 
         -o|--o|--os)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['os']="$2"
             OPTS['shift']=2;;
     esac

@@ -7,7 +7,7 @@ function github-utilities.cmdLineArgs()
 {
     case "${1,,}" in
         -b|--b|--base)
-            [[ $# -le 2 || $2 = -* ]] && trap.die 'invalid arguments!'
+            [[ $# -lt 2 || $2 = -* ]] && trap.die 'invalid arguments!'
             OPTS['base']="$2"
             OPTS['shift']=2
             return 0;;

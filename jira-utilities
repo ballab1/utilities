@@ -33,7 +33,7 @@ if [ "${OPTS['user']:-}" ]; then
     export _JIRA_USER="${OPTS['user']}"
     export _JIRA_CREDENTIALS=$(credentials.get jira)
 fi
-[ "${OPTS['server']:-}" ] && export _JIRA_SERVER="${OPTS['server']}"
+[ "${OPTS['server']:-}" ] && export CFG_JIRA_SERVER="${OPTS['server']}"
 [ "${OPTS['key']:-}" ] && export _JIRA_PROJECT="${OPTS['key']}"
 
 # regular output

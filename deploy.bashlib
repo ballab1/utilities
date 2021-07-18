@@ -27,26 +27,31 @@ function deploy.cmdLineArgs()
 {
     case "${1,,}" in
         -a|--a|--archive)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['archive']="$2"
             OPTS['shift']=2
             return 0;;
 
         -b|--b|--base)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['base']="$2"
             OPTS['shift']=2
             return 0;;
 
         --dev)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['dev']=1
             OPTS['shift']=1
             return 0;;
 
         -l|--l|--latest)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['latest']='HEAD'
             OPTS['shift']=1
             return 0;;
 
         -t|--t|--tag)
+            [[ $# -lt 2 || "$2" = -* ]] && trap.die 'invalid arguments!'
             OPTS['container_tag']="$2"
             OPTS['shift']=2
             return 0;;
@@ -185,7 +190,7 @@ function deploy.down()
         local -i networkCount=$(docker network ls | grep -cs "$network")
         [ "$networkCount" -gt 0 ] || return 1
     fi
-
+    
     if [ -f "${OPTS['workspaceYaml']}" ]; then
         term.log 'INFO: bringing down containers to allow "workspace" to be refreshed\n' 'lt_magenta'
         term.log '\nINFO: bringing down containers\n' 'white'
